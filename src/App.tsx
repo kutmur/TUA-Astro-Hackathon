@@ -18,7 +18,7 @@ function App() {
         </main>
         
         <footer className="py-8 mt-24 border-t border-(--border)/50 text-center text-(--mastra-text-secondary) text-sm">
-          <p>LunarPath AI &copy; 2026 TUA Astro Hackathon</p>
+            <p>ThresholdAI &copy; 2026 TUA Astro Hackathon</p>
         </footer>
       </div>
     </LanguageProvider>

@@ -10,13 +10,16 @@ import argparse
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+import matplotlib.pyplot as plt
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from data_processing import BBox, PixelWindow, dem_statistics, find_first_tif, load_dem_window
-from visualization import plot_dem_heatmap, plot_dem_surface, show_all
+from visualization import SurfaceMarker, plot_dem_heatmap, plot_dem_surface, show_all
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +72,49 @@ def parse_args() -> argparse.Namespace:
         help="Only show 3D surface (skip 2D heatmap).",
     )
     parser.add_argument(
+        "--save-surface",
+        type=str,
+        default=None,
+        help="Optional output path to save the base 3D surface image.",
+    )
+    parser.add_argument(
+        "--save-annotated",
+        type=str,
+        default=None,
+        help="Optional output path to save the A/B annotated 3D surface image.",
+    )
+    parser.add_argument(
+        "--stage1-markers",
+        dest="stage1_markers",
+        action="store_true",
+        default=True,
+        help="Overlay Stage-1 A/B markers and labels on the 3D surface (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-stage1-markers",
+        dest="stage1_markers",
+        action="store_false",
+        help="Disable Stage-1 A/B markers on the 3D surface.",
+    )
+    parser.add_argument(
+        "--view-elev",
+        type=float,
+        default=35.0,
+        help="Camera elevation angle for 3D surface.",
+    )
+    parser.add_argument(
+        "--view-azim",
+        type=float,
+        default=225.0,
+        help="Camera azimuth angle for 3D surface.",
+    )
+    parser.add_argument(
+        "--dpi",
+        type=int,
+        default=300,
+        help="DPI used while saving output images.",
+    )
+    parser.add_argument(
         "--no-show",
         action="store_true",
         help="Prepare plots without opening UI window (for testing).",
@@ -115,6 +161,21 @@ def build_bbox(raw_values: list[float] | None) -> BBox | None:
     return xmin, ymin, xmax, ymax
 
 
+def _ensure_output_path(raw_path: str) -> Path:
+    """Resolves and prepares an output file path."""
+
+    output_path = Path(raw_path).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path
+
+
+def _clamp_point(row: int, col: int, shape: tuple[int, int]) -> tuple[int, int]:
+    """Clamps a target point into DEM bounds."""
+
+    rows, cols = shape
+    return max(0, min(row, rows - 1)), max(0, min(col, cols - 1))
+
+
 def run() -> int:
     """Runs direct plotting workflow.
 
@@ -147,11 +208,58 @@ def run() -> int:
             f"mean={stats['mean']:.3f}, std={stats['std']:.3f}"
         )
 
-        plot_dem_surface(
+        marker_mode = args.stage1_markers or bool(args.save_annotated)
+        stage1_markers = None
+        if marker_mode:
+            start_row, start_col = _clamp_point(0, 120, dem_tile.elevation.shape)
+            end_row, end_col = _clamp_point(60, 5, dem_tile.elevation.shape)
+            start_elevation = float(dem_tile.elevation[start_row, start_col])
+            end_elevation = float(dem_tile.elevation[end_row, end_col])
+            print(
+                "Resolved markers: "
+                f"A(Row={start_row}, Col={start_col}, Elev={start_elevation:.1f}) | "
+                f"B(Row={end_row}, Col={end_col}, Elev={end_elevation:.1f})"
+            )
+            stage1_markers = [
+                SurfaceMarker(
+                    row=start_row,
+                    col=start_col,
+                    label="Start Point A",
+                    color="red",
+                    marker="v",
+                    size=150.0,
+                    label_offset=(18.0, 10.0, 0.0),
+                ),
+                SurfaceMarker(
+                    row=end_row,
+                    col=end_col,
+                    label="End Point B",
+                    color="lime",
+                    marker="D",
+                    size=150.0,
+                    label_offset=(-22.0, 12.0, 0.0),
+                ),
+            ]
+
+        surface_figure = plot_dem_surface(
             elevation=dem_tile.elevation,
+            markers=stage1_markers,
             z_exaggeration=args.z_exaggeration,
+            view_elev=args.view_elev,
+            view_azim=args.view_azim,
             title="Lunar DEM 3D Surface",
         )
+
+        if args.save_surface:
+            output_path = _ensure_output_path(args.save_surface)
+            surface_figure.savefig(output_path, dpi=args.dpi)
+            print(f"Saved base surface image: {output_path}")
+
+        if args.save_annotated:
+            output_path = _ensure_output_path(args.save_annotated)
+            surface_figure.savefig(output_path, dpi=args.dpi)
+            print(f"Saved annotated surface image: {output_path}")
+
         if not args.surface_only:
             plot_dem_heatmap(
                 elevation=dem_tile.elevation,
@@ -160,6 +268,8 @@ def run() -> int:
 
         if not args.no_show:
             show_all()
+        else:
+            plt.close("all")
 
         return 0
 

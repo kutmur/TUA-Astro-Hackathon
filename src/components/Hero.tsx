@@ -1,11 +1,17 @@
 import { Terminal, Play } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import SimulationCanvas from './scene/SimulationCanvas'
 import { Button } from './ui/button'
 import { useLanguage } from '../context/LanguageContext'
 
 export default function Hero() {
   const { t } = useLanguage()
+  const [simulationRunId, setSimulationRunId] = useState(0)
+
+  const restartSimulation = () => {
+    setSimulationRunId((prev) => prev + 1)
+  }
 
   return (
     <section className="relative min-h-[90vh] flex items-center pt-20 overflow-hidden">
@@ -33,11 +39,18 @@ export default function Hero() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 pt-4">
-            <Button variant="default" size="lg" className="w-full sm:w-auto font-semibold">
-              <Terminal className="w-5 h-5 mr-2" />
-              {t('viewGithub')}
+            <Button asChild variant="default" size="lg" className="w-full sm:w-auto font-semibold">
+              <a href="https://github.com/kutmur/TUA-Astro-Hackathon" target="_blank" rel="noopener noreferrer">
+                <Terminal className="w-5 h-5 mr-2" />
+                {t('viewGithub')}
+              </a>
             </Button>
-            <Button variant="secondary" size="lg" className="w-full sm:w-auto font-semibold relative overflow-hidden group border hover:border-(--mastra-green-accent-2)/50 hover:shadow-[0_0_20px_rgba(0,255,0,0.15)] transition-all">
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={restartSimulation}
+              className="w-full sm:w-auto font-semibold relative overflow-hidden group border hover:border-(--mastra-green-accent-2)/50 hover:shadow-[0_0_20px_rgba(0,255,0,0.15)] transition-all"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-neon-cyan/[0.05] to-neon-green/[0.05] opacity-0 group-hover:opacity-100 transition-opacity" />
               <Play className="w-5 h-5 text-neon-cyan group-hover:text-(--mastra-green-accent-2) transition-colors mr-2" />
               {t('runSimulation')}
@@ -52,7 +65,7 @@ export default function Hero() {
           className="w-full lg:w-1/2"
         >
           <div className="relative aspect-square sm:aspect-[4/3] w-full rounded-2xl border border-(--border)/50 bg-(--mastra-surface-2) shadow-[0_0_50px_rgba(0,255,255,0.05)] overflow-hidden cursor-move">
-            <SimulationCanvas />
+            <SimulationCanvas key={simulationRunId} />
           </div>
         </motion.div>
 

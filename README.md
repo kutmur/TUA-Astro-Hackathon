@@ -10,10 +10,13 @@ This project plans and visualizes rover routes on the Haworth crater terrain by 
 
 The result is a clear, explainable route analysis suitable for technical demo and jury presentation.
 
-## Demo (Input / Output)
+## Demo (Input / Top View / Output)
 
 ### Input
 ![Input](input.png)
+
+### Top View
+![Top View](topview.png)
 
 ### Output
 ![Output](output.png)
@@ -115,8 +118,9 @@ python3 ayap2_nav/main.py --window-size 1500 --downsample 1
 
 ## Generated Files
 
-For the current submission/demo, we use two PNG files:
+For the current submission/demo, we use three PNG files:
 - `input.png`
+- `topview.png`
 - `output.png`
 
 If you run `ayap2_nav/main.py`, detailed analysis figures are still generated in the chosen `--output-dir`.

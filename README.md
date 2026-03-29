@@ -79,7 +79,8 @@ Where:
 - `rasterio`
 
 Optional:
-- `opencv-python` (only needed when using image-based DEM input in `src/ayap2_astar_routes.py`).
+- `opencv-python` (needed for camera/perception flow and OpenCV-based utilities).
+- `tensorflow` (needed only if perception model inference is enabled).
 
 ### Installation
 
@@ -115,6 +116,21 @@ Control crop/downsample:
 ```bash
 python3 ayap2_nav/main.py --window-size 1500 --downsample 1
 ```
+
+## Perception Mode (Optional)
+
+Camera-driven rock segmentation is disabled by default to simulate constrained onboard RAM.
+
+1. Set `CAMERA_CONNECTED = True` in `ayap2_nav/config.py`.
+2. Ensure `SEGMENTATION_MODEL_WEIGHTS` points to a valid `.h5` weights file.
+3. Install optional dependencies (`opencv-python`, `tensorflow`).
+4. Run:
+
+```bash
+python3 ayap2_nav/main.py --output-dir ./output
+```
+
+When `CAMERA_CONNECTED=False`, the segmentation model is not loaded into memory and planning runs with baseline cost layers.
 
 ## Generated Files
 

@@ -1,4 +1,4 @@
-# TUA Astro Hackathon - AYAP-2 Lunar Route Optimization
+# TUA Astro Hackathon - Lunar Route Optimization
 
 Real-DEM-based, multi-objective A* navigation pipeline for lunar rover route planning.
 

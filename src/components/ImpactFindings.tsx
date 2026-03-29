@@ -1,32 +1,34 @@
 import { motion } from 'framer-motion'
 import { AlertTriangle, BatteryCharging, Network } from 'lucide-react'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function ImpactFindings() {
+  const { t } = useLanguage()
+
   const findings = [
     {
       icon: <AlertTriangle className="w-8 h-8 text-neon-magenta" />,
-      title: "37% Lower Mission Risk",
-      desc: "Balanced route avoids high-slope and shadow zones compared to naive shortest-path planning."
+      title: t('impactRiskTitle'),
+      desc: t('impactRiskDesc')
     },
     {
       icon: <BatteryCharging className="w-8 h-8 text-neon-green" />,
-      title: "28% Energy Savings",
-      desc: "Slope-aware cost reduces unnecessary uphill climbs, extending rover battery life per mission leg."
+      title: t('impactEnergyTitle'),
+      desc: t('impactEnergyDesc')
     },
     {
       icon: <Network className="w-8 h-8 text-neon-cyan" />,
-      title: "3 Actionable Strategies",
-      desc: "Jury/mission planners get interpretable alternatives, not a black-box single answer."
+      title: t('impactActionTitle'),
+      desc: t('impactActionDesc')
     }
   ]
 
   return (
     <section className="py-24 px-6 max-w-7xl mx-auto border-t border-slate-800/50">
       <div className="text-center mb-16">
-        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">Millions of Dollars Saved.</h2>
+        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">{t('impactTitle')}</h2>
         <p className="text-slate-400 max-w-2xl mx-auto text-lg">
-          Minimizing rover wear-and-tear and thermal degradation by predicting regolith friction and shadow risks.
-          We optimized lunar routes using real crater topography, moving beyond simple shortest-distance algorithms to deliver interpretable, mission-ready alternatives.
+          {t('impactDesc')}
         </p>
       </div>
       

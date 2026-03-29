@@ -1,30 +1,33 @@
 import { motion } from 'framer-motion'
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function FourDCostModel() {
+  const { t } = useLanguage()
+
   const variables = [
     {
       letter: "D",
-      name: "Euclidean Distance",
-      desc: "Cell-to-cell travel cost.",
+      name: t('varDName'),
+      desc: t('varDDesc'),
       glow: "hover:shadow-[0_0_25px_rgba(0,255,255,0.1)] hover:border-neon-cyan/40 hover:bg-(--mastra-surface-3)"
     },
     {
       letter: "E",
-      name: "Asymmetric Slope",
-      desc: "Steep uphill penalized heavily.",
+      name: t('varEName'),
+      desc: t('varEDesc'),
       glow: "hover:shadow-[0_0_25px_rgba(255,165,0,0.1)] hover:border-neon-orange/40 hover:bg-(--mastra-surface-3)"
     },
     {
       letter: "S",
-      name: "Regolith Roughness",
-      desc: "Surface friction & sinkage proxy.",
+      name: t('varSName'),
+      desc: t('varSDesc'),
       glow: "hover:shadow-[0_0_25px_rgba(255,0,255,0.1)] hover:border-neon-magenta/40 hover:bg-(--mastra-surface-3)"
     },
     {
       letter: "G",
-      name: "Shadow / Thermal",
-      desc: "Heat cycle & depth risk.",
+      name: t('varGName'),
+      desc: t('varGDesc'),
       glow: "hover:shadow-[0_0_25px_rgba(0,255,0,0.1)] hover:border-(--mastra-green-accent-2)/40 hover:bg-(--mastra-surface-3)"
     }
   ]
@@ -32,8 +35,8 @@ export default function FourDCostModel() {
   return (
     <section className="py-24 px-6 max-w-7xl mx-auto">
       <div className="text-center mb-16">
-        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">The 4D Cost Model</h2>
-        <p className="text-(--mastra-text-secondary)">Evaluating multi-objective constraints on every terrain cell.</p>
+        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">{t('costModelTitle')}</h2>
+        <p className="text-(--mastra-text-secondary)">{t('costModelDesc')}</p>
       </div>
 
       <motion.div 

@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
+import { getHeight } from '../../lib/terrainMath'
 
 export default function LunarTerrain({ stage }: { stage: number }) {
   const meshRef = useRef<THREE.Mesh>(null)
@@ -22,18 +23,7 @@ export default function LunarTerrain({ stage }: { stage: number }) {
             const x = (i / grid - 0.5) * size
             const z = (j / grid - 0.5) * size
             
-            // Perlin-like
-            const nx = i / 10
-            const nz = j / 10
-            let y = Math.sin(nx)*Math.cos(nz)*2 + Math.sin(nx*2.5 + nz)*1
-            
-            // Crater roughly in center-ish
-            const cx = x + 5
-            const cz = z - 5
-            const cr = Math.sqrt(cx*cx + cz*cz)
-            if (cr < 15) {
-                y -= (15 - cr) * 0.8
-            }
+            const y = getHeight(x, z)
 
             pos.push(x, y, z)
 

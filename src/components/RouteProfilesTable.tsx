@@ -1,28 +1,31 @@
 import { motion } from 'framer-motion'
 import { Card } from './ui/card'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function RouteProfilesTable() {
+  const { t } = useLanguage()
+
   const profiles = [
     {
-      name: "Optimal Path (Balanced 4D)",
+      name: t('profOptimalName'),
       color: "bg-neon-orange",
       text: "text-neon-orange",
       weights: { d: 1.4, e: 4.0, s: 1.6, g: 0.22 },
-      desc: "Optimal mission trade-off prioritizing safe traversal speeds."
+      desc: t('profOptimalDesc')
     },
     {
-      name: "Shortest Distance",
+      name: t('profShortestName'),
       color: "bg-neon-cyan",
       text: "text-neon-cyan",
       weights: { d: 9.5, e: 0.25, s: 0.05, g: 0.01 },
-      desc: "Aggressive, high-speed profile ignoring severe inclines."
+      desc: t('profShortestDesc')
     },
     {
-      name: "Thermal Safe",
+      name: t('profThermalName'),
       color: "bg-neon-magenta",
       text: "text-neon-magenta",
       weights: { d: 0.9, e: 1.2, s: 0.56, g: 6.5 },
-      desc: "Strictly avoids shadows and high thermal cycling risks."
+      desc: t('profThermalDesc')
     }
   ]
 
@@ -31,8 +34,8 @@ export default function RouteProfilesTable() {
   return (
     <section className="py-24 px-6 max-w-5xl mx-auto border-t border-(--border)/50">
       <div className="text-center mb-16">
-        <h2 className="text-3xl font-bold mb-4 tracking-tight">Mission Profiles Config</h2>
-        <p className="text-(--mastra-text-secondary)">Compare parameter weight distributions for adaptive planning.</p>
+        <h2 className="text-3xl font-bold mb-4 tracking-tight">{t('profileTitle')}</h2>
+        <p className="text-(--mastra-text-secondary)">{t('profileDesc')}</p>
       </div>
 
       <div className="space-y-6">

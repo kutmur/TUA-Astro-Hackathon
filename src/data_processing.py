@@ -105,6 +105,108 @@ class DEMTile:
     pixel_window: PixelWindow
 
 
+@dataclass(frozen=True)
+class DEMLoadRequest:
+    """Input request object for DEM loading.
+
+    Attributes:
+        pixel_window: Optional explicit pixel-space crop window.
+        bbox: Optional map-coordinate bounding box.
+        window_size: Center crop size when no explicit crop is provided.
+        downsample: Pixel reduction factor used while reading.
+        fill_nan: Whether NaN values should be median-filled.
+        resampling: Rasterio resampling method used with downsampling.
+    """
+
+    pixel_window: Optional[PixelWindow] = None
+    bbox: Optional[BBox] = None
+    window_size: int = 1200
+    downsample: int = 1
+    fill_nan: bool = True
+    resampling: Resampling = Resampling.bilinear
+
+    def validate(self) -> None:
+        """Validates mutually exclusive and numeric request parameters."""
+
+        if self.downsample < 1:
+            raise ValueError("downsample must be >= 1.")
+
+        if self.pixel_window is not None and self.bbox is not None:
+            raise ValueError("Provide either pixel_window or bbox, not both.")
+
+
+class DEMLoader:
+    """Object-oriented DEM loader that encapsulates GeoTIFF read workflow."""
+
+    def __init__(self, tif_path: Path):
+        self._tif_path = tif_path
+
+    @property
+    def tif_path(self) -> Path:
+        """Returns source GeoTIFF path."""
+
+        return self._tif_path
+
+    def load(self, request: DEMLoadRequest) -> DEMTile:
+        """Loads one DEM tile according to the provided request."""
+
+        if not self.tif_path.exists():
+            raise FileNotFoundError(f"GeoTIFF file not found: {self.tif_path}")
+
+        request.validate()
+
+        with rasterio.open(self.tif_path) as dataset:
+            selected_window = self._select_window(dataset, request)
+            rio_window = selected_window.to_rasterio_window()
+            out_height = max(1, int(np.ceil(selected_window.height / request.downsample)))
+            out_width = max(1, int(np.ceil(selected_window.width / request.downsample)))
+
+            elevation = dataset.read(
+                1,
+                window=rio_window,
+                out_shape=(out_height, out_width),
+                resampling=request.resampling,
+            )
+
+            window_transform = dataset.window_transform(rio_window)
+            if request.downsample > 1:
+                scale_x = selected_window.width / float(out_width)
+                scale_y = selected_window.height / float(out_height)
+                adjusted_transform = window_transform * Affine.scale(scale_x, scale_y)
+            else:
+                adjusted_transform = window_transform
+
+            cleaned = clean_elevation_array(
+                elevation=elevation,
+                nodata=dataset.nodata,
+                fill_nan=request.fill_nan,
+            )
+
+            return DEMTile(
+                elevation=cleaned,
+                transform=adjusted_transform,
+                crs=dataset.crs,
+                nodata=dataset.nodata,
+                pixel_window=selected_window,
+            )
+
+    @staticmethod
+    def _select_window(dataset: DatasetReader, request: DEMLoadRequest) -> PixelWindow:
+        """Selects the effective pixel window based on request parameters."""
+
+        if request.pixel_window is not None:
+            return request.pixel_window.clamp_to_bounds(dataset.width, dataset.height)
+
+        if request.bbox is not None:
+            return _bbox_to_pixel_window(request.bbox, dataset)
+
+        return build_center_window(
+            raster_width=dataset.width,
+            raster_height=dataset.height,
+            window_size=request.window_size,
+        )
+
+
 def find_first_tif(data_directory: Path) -> Path:
     """Finds the first `.tif` or `.tiff` under a directory.
 
@@ -247,59 +349,16 @@ def load_dem_window(
         ValueError: If arguments are invalid.
     """
 
-    if not tif_path.exists():
-        raise FileNotFoundError(f"GeoTIFF file not found: {tif_path}")
-
-    if downsample < 1:
-        raise ValueError("downsample must be >= 1.")
-
-    if pixel_window is not None and bbox is not None:
-        raise ValueError("Provide either pixel_window or bbox, not both.")
-
-    with rasterio.open(tif_path) as dataset:
-        if pixel_window is not None:
-            selected_window = pixel_window.clamp_to_bounds(dataset.width, dataset.height)
-        elif bbox is not None:
-            selected_window = _bbox_to_pixel_window(bbox, dataset)
-        else:
-            selected_window = build_center_window(
-                raster_width=dataset.width,
-                raster_height=dataset.height,
-                window_size=window_size,
-            )
-
-        rio_window = selected_window.to_rasterio_window()
-        out_height = max(1, int(np.ceil(selected_window.height / downsample)))
-        out_width = max(1, int(np.ceil(selected_window.width / downsample)))
-
-        elevation = dataset.read(
-            1,
-            window=rio_window,
-            out_shape=(out_height, out_width),
-            resampling=resampling,
-        )
-
-        window_transform = dataset.window_transform(rio_window)
-        if downsample > 1:
-            scale_x = selected_window.width / float(out_width)
-            scale_y = selected_window.height / float(out_height)
-            adjusted_transform = window_transform * Affine.scale(scale_x, scale_y)
-        else:
-            adjusted_transform = window_transform
-
-        cleaned = clean_elevation_array(
-            elevation=elevation,
-            nodata=dataset.nodata,
-            fill_nan=fill_nan,
-        )
-
-        return DEMTile(
-            elevation=cleaned,
-            transform=adjusted_transform,
-            crs=dataset.crs,
-            nodata=dataset.nodata,
-            pixel_window=selected_window,
-        )
+    request = DEMLoadRequest(
+        pixel_window=pixel_window,
+        bbox=bbox,
+        window_size=window_size,
+        downsample=downsample,
+        fill_nan=fill_nan,
+        resampling=resampling,
+    )
+    loader = DEMLoader(tif_path=tif_path)
+    return loader.load(request)
 
 
 def dem_statistics(elevation: np.ndarray) -> dict[str, float]:

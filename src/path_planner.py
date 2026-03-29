@@ -119,6 +119,67 @@ def _validate_point(point: GridPoint, shape: tuple[int, int], name: str) -> None
         raise ValueError(f"{name} point {point} is outside grid bounds {shape}.")
 
 
+@dataclass
+class AStarPathPlanner:
+    """Object-oriented A* planner with pluggable transition-cost strategy."""
+
+    elevation: np.ndarray
+    cost_function: CostFunction
+
+    def __post_init__(self) -> None:
+        if self.elevation.ndim != 2:
+            raise ValueError("Elevation grid must be 2-dimensional.")
+
+    def _build_cost_context(self, current: GridPoint, neighbor: GridPoint) -> CostContext:
+        """Builds one transition context consumed by user-defined cost formulas."""
+
+        return CostContext(
+            current=current,
+            neighbor=neighbor,
+            distance=euclidean_distance(current, neighbor),
+            local_slope=estimate_local_slope(self.elevation, current, neighbor),
+            solar_penalty=estimate_solar_penalty(current, neighbor),
+        )
+
+    def plan(self, start: GridPoint, goal: GridPoint) -> list[GridPoint]:
+        """Plans one path from start to goal over the elevation grid."""
+
+        _validate_point(start, self.elevation.shape, "Start")
+        _validate_point(goal, self.elevation.shape, "Goal")
+
+        if start == goal:
+            return [start]
+
+        open_heap: list[PrioritizedNode] = []
+        heappush(open_heap, PrioritizedNode(priority=0.0, point=start))
+
+        came_from: dict[GridPoint, GridPoint] = {}
+        g_score: dict[GridPoint, float] = {start: 0.0}
+
+        while open_heap:
+            current = heappop(open_heap).point
+            if current == goal:
+                return reconstruct_path(came_from, goal)
+
+            for neighbor in neighbors_8(current, self.elevation.shape):
+                context = self._build_cost_context(current, neighbor)
+                step_cost = float(self.cost_function(context))
+
+                if not np.isfinite(step_cost) or step_cost < 0:
+                    continue
+
+                tentative_g = g_score[current] + step_cost
+                if tentative_g >= g_score.get(neighbor, np.inf):
+                    continue
+
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g
+                priority = tentative_g + euclidean_distance(neighbor, goal)
+                heappush(open_heap, PrioritizedNode(priority=priority, point=neighbor))
+
+        raise RuntimeError("No feasible path found for the selected DEM window.")
+
+
 def plan_path(
     elevation: np.ndarray,
     start: GridPoint,
@@ -145,53 +206,8 @@ def plan_path(
         RuntimeError: If no path is found.
     """
 
-    if elevation.ndim != 2:
-        raise ValueError("Elevation grid must be 2-dimensional.")
-
-    _validate_point(start, elevation.shape, "Start")
-    _validate_point(goal, elevation.shape, "Goal")
-
-    if start == goal:
-        return [start]
-
-    open_heap: list[PrioritizedNode] = []
-    heappush(open_heap, PrioritizedNode(priority=0.0, point=start))
-
-    came_from: dict[GridPoint, GridPoint] = {}
-    g_score: dict[GridPoint, float] = {start: 0.0}
-
-    while open_heap:
-        current = heappop(open_heap).point
-        if current == goal:
-            return reconstruct_path(came_from, goal)
-
-        for neighbor in neighbors_8(current, elevation.shape):
-            distance = euclidean_distance(current, neighbor)
-            slope_proxy = estimate_local_slope(elevation, current, neighbor)
-            solar_penalty = estimate_solar_penalty(current, neighbor)
-
-            context = CostContext(
-                current=current,
-                neighbor=neighbor,
-                distance=distance,
-                local_slope=slope_proxy,
-                solar_penalty=solar_penalty,
-            )
-            step_cost = float(cost_function(context))
-
-            if not np.isfinite(step_cost) or step_cost < 0:
-                continue
-
-            tentative_g = g_score[current] + step_cost
-            if tentative_g >= g_score.get(neighbor, np.inf):
-                continue
-
-            came_from[neighbor] = current
-            g_score[neighbor] = tentative_g
-            priority = tentative_g + euclidean_distance(neighbor, goal)
-            heappush(open_heap, PrioritizedNode(priority=priority, point=neighbor))
-
-    raise RuntimeError("No feasible path found for the selected DEM window.")
+    planner = AStarPathPlanner(elevation=elevation, cost_function=cost_function)
+    return planner.plan(start=start, goal=goal)
 
 
 def path_length(path: list[GridPoint]) -> float:

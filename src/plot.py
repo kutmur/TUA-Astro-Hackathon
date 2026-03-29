@@ -19,7 +19,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from data_processing import BBox, PixelWindow, dem_statistics, find_first_tif, load_dem_window
-from visualization import SurfaceMarker, plot_dem_heatmap, plot_dem_surface, show_all
+from visualization import DEMVisualizer, RoutePath, SurfaceMarker, plot_dem_heatmap, plot_dem_surface, show_all
 
 
 def parse_args() -> argparse.Namespace:
@@ -241,13 +241,22 @@ def run() -> int:
                 ),
             ]
 
+            mock_routes = DEMVisualizer.generate_mock_routes(
+                start_row=start_row,
+                start_col=start_col,
+                end_row=end_row,
+                end_col=end_col,
+                elevation=dem_tile.elevation,
+            )
+
         surface_figure = plot_dem_surface(
             elevation=dem_tile.elevation,
             markers=stage1_markers,
+            routes=mock_routes if marker_mode else None,
             z_exaggeration=args.z_exaggeration,
             view_elev=args.view_elev,
             view_azim=args.view_azim,
-            title="Lunar DEM 3D Surface",
+            title="TUA AYAP-2 | Lunar Surface \u2013 Multi-Objective Route Analysis",
         )
 
         if args.save_surface:

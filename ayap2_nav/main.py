@@ -20,33 +20,62 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
 
 try:
     from .config import (
+        CAMERA_CONNECTED,
+        CAMERA_DEVICE_INDEX,
+        CAMERA_MAX_FRAMES,
         GOAL_UV,
         PROJECT_CONFIG,
+        ROCK_DIRECT_PENALTY,
+        ROCK_FAR_PENALTY,
+        ROCK_FAR_WINDOW_RADIUS,
+        ROCK_MASK_THRESHOLD,
+        ROCK_NEAR_PENALTY,
+        ROCK_NEAR_WINDOW_RADIUS,
+        ROCK_PENALTY_TARGET_LAYER,
         ROUTE_PROFILES,
+        SEGMENTATION_INPUT_SHAPE,
+        SEGMENTATION_MODEL_WEIGHTS,
+        SEGMENTATION_VGG16_WEIGHTS,
         START_UV,
-        uv_to_grid,
         resolve_default_tif,
+        uv_to_grid,
     )
     from .dem_loader import build_cost_layers, load_dem
-    from .planner import RouteResult, astar_search
+    from .perception import RockSegmentationPerception
+    from .planner import RouteResult, apply_rock_obstacle_penalty, astar_search
     from .visualization import DEMVisualizer
 except ImportError:
     from config import (
+        CAMERA_CONNECTED,
+        CAMERA_DEVICE_INDEX,
+        CAMERA_MAX_FRAMES,
         GOAL_UV,
         PROJECT_CONFIG,
+        ROCK_DIRECT_PENALTY,
+        ROCK_FAR_PENALTY,
+        ROCK_FAR_WINDOW_RADIUS,
+        ROCK_MASK_THRESHOLD,
+        ROCK_NEAR_PENALTY,
+        ROCK_NEAR_WINDOW_RADIUS,
+        ROCK_PENALTY_TARGET_LAYER,
         ROUTE_PROFILES,
+        SEGMENTATION_INPUT_SHAPE,
+        SEGMENTATION_MODEL_WEIGHTS,
+        SEGMENTATION_VGG16_WEIGHTS,
         START_UV,
-        uv_to_grid,
         resolve_default_tif,
+        uv_to_grid,
     )
     from dem_loader import build_cost_layers, load_dem
-    from planner import RouteResult, astar_search
+    from perception import RockSegmentationPerception
+    from planner import RouteResult, apply_rock_obstacle_penalty, astar_search
     from visualization import DEMVisualizer
 
 
@@ -90,6 +119,110 @@ def _parse_args() -> argparse.Namespace:
 # ─────────────────────────────────────────────────
 # Ana İş Akışı
 # ─────────────────────────────────────────────────
+
+def _generate_fallback_mock_frame(index: int, shape: tuple[int, int, int] = (720, 960, 3)) -> np.ndarray:
+    """Kamera yoksa pipeline testi için sentetik BGR frame üretir."""
+    try:
+        import cv2
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(
+            "Mock kamera fallback için 'opencv-python' gereklidir."
+        ) from err
+
+    h, w, _ = shape
+    frame = np.zeros(shape, dtype=np.uint8)
+    frame[:, :] = (22, 22, 26)
+
+    # Hafif zemin gradienti
+    grad = np.linspace(0, 28, w, dtype=np.uint8)
+    frame[:, :, 1] = np.clip(frame[:, :, 1] + grad[None, :], 0, 255)
+
+    # Hareketli mock kayalar
+    center_x = int((w * 0.25) + (index * 11) % int(w * 0.5))
+    center_y = int((h * 0.35) + (index * 7) % int(h * 0.3))
+    cv2.circle(frame, (center_x, center_y), 54, (95, 95, 95), -1)
+    cv2.circle(frame, (center_x + 130, center_y + 55), 38, (118, 118, 118), -1)
+    cv2.circle(frame, (center_x - 110, center_y + 35), 27, (82, 82, 82), -1)
+
+    return frame
+
+
+def _iter_mock_camera_frames(
+    *,
+    max_frames: int,
+    device_index: int,
+) -> Iterator[np.ndarray]:
+    """OpenCV VideoCapture tabanlı mock kamera okuma döngüsü."""
+    try:
+        import cv2
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(
+            "Kamera döngüsü için 'opencv-python' paketi gereklidir."
+        ) from err
+
+    cap = cv2.VideoCapture(device_index)
+    if not cap.isOpened():
+        print(
+            "  [KAMERA] VideoCapture açılamadı. "
+            "Mock sentetik frame akışına geçiliyor."
+        )
+        for idx in range(max_frames):
+            yield _generate_fallback_mock_frame(idx)
+        return
+
+    try:
+        read_count = 0
+        while read_count < max_frames:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                print("  [KAMERA] Frame okunamadı, döngü sonlandırıldı.")
+                break
+
+            read_count += 1
+            yield frame
+    finally:
+        cap.release()
+
+
+def _run_camera_perception_and_build_mask(grid_shape: tuple[int, int]) -> np.ndarray | None:
+    """Kameradan gelen frame'lerde segmentasyon çalıştırıp birleşik kaya maskesi döndürür."""
+    perception: RockSegmentationPerception | None = None
+    observed_rocks = np.zeros(grid_shape, dtype=np.uint8)
+    processed_frames = 0
+
+    for frame in _iter_mock_camera_frames(
+        max_frames=CAMERA_MAX_FRAMES,
+        device_index=CAMERA_DEVICE_INDEX,
+    ):
+        # KATI KURAL: model, ancak kamera bağlı + frame geldiyse RAM'e alınır.
+        if perception is None:
+            perception = RockSegmentationPerception(
+                weights_path=SEGMENTATION_MODEL_WEIGHTS,
+                input_shape=SEGMENTATION_INPUT_SHAPE,
+                vgg16_weights=SEGMENTATION_VGG16_WEIGHTS,
+            )
+
+        frame_mask = perception.segment_rocks(
+            frame,
+            threshold=ROCK_MASK_THRESHOLD,
+            output_shape=grid_shape,
+        )
+        observed_rocks = np.maximum(observed_rocks, frame_mask)
+        processed_frames += 1
+
+    if processed_frames == 0:
+        return None
+
+    rock_pixels = int(np.count_nonzero(observed_rocks))
+    total = int(observed_rocks.size)
+    ratio = (rock_pixels / max(total, 1)) * 100.0
+    print(
+        "  [PERCEPTION] "
+        f"İşlenen frame={processed_frames} | "
+        f"Kaya pikseli={rock_pixels}/{total} (%{ratio:.2f})"
+    )
+
+    return observed_rocks
 
 def run() -> int:
     """AYAP-2 kademeli rota simülasyonu iş akışını çalıştırır.
@@ -171,6 +304,38 @@ def run() -> int:
     )
 
     # ══════════════════════════════════════════════
+    # ADIM 2.5: Kamera + Segmentasyon + Katman Güncelleme
+    # ══════════════════════════════════════════════
+    planning_layers = layers
+    if CAMERA_CONNECTED:
+        print("  ADIM 2.5: Kamera aktif, U-Net segmentasyon çalıştırılıyor...")
+        rock_mask = _run_camera_perception_and_build_mask(z_real.shape)
+
+        if rock_mask is not None and np.any(rock_mask):
+            planning_layers = apply_rock_obstacle_penalty(
+                layers=layers,
+                rock_mask=rock_mask,
+                target_layer=ROCK_PENALTY_TARGET_LAYER,
+                direct_penalty=ROCK_DIRECT_PENALTY,
+                near_penalty=ROCK_NEAR_PENALTY,
+                far_penalty=ROCK_FAR_PENALTY,
+                near_radius=ROCK_NEAR_WINDOW_RADIUS,
+                far_radius=ROCK_FAR_WINDOW_RADIUS,
+            )
+            print(
+                "  [PLANLAYICI] Kaya maskesi maliyet katmanlarına işlendi "
+                f"(target={ROCK_PENALTY_TARGET_LAYER}, "
+                f"direct={ROCK_DIRECT_PENALTY:.1f})."
+            )
+        else:
+            print("  [PLANLAYICI] Kamera akışında kaya tespiti yok, temel katmanlar kullanılacak.")
+    else:
+        print(
+            "  ADIM 2.5: CAMERA_CONNECTED=False -> "
+            "model RAM'e yüklenmedi, perception atlandı."
+        )
+
+    # ══════════════════════════════════════════════
     # ADIM 3: A* Rota Planlama + Final Görsel
     # ══════════════════════════════════════════════
     print("  ADIM 3/3: A* rota hesaplama başlıyor...")
@@ -184,7 +349,7 @@ def run() -> int:
             start=start,
             goal=goal,
             profile=profile,
-            layers=layers,
+            layers=planning_layers,
         )
         t_elapsed = time.perf_counter() - t_start
 

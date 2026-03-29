@@ -135,6 +135,98 @@ def _heuristic(point: GridPoint, goal: GridPoint, profile: RouteProfile) -> floa
     return profile.wd * _euclidean(point, goal) * 1000.0
 
 
+def _sliding_window_density(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Binary mask için kayar pencere doluluk oranı üretir.
+
+    Bu fonksiyon, Hiyerarşik Kayar Pencere yaklaşımında her pikselin
+    çevresindeki engel yoğunluğunu [0, 1] aralığında verir.
+    """
+    binary = np.asarray(mask, dtype=np.float32)
+    if binary.ndim != 2:
+        raise ValueError(f"mask 2D olmalı, elde edilen boyut: {binary.shape}")
+
+    if radius <= 0:
+        return np.clip(binary, 0.0, 1.0)
+
+    pad = int(radius)
+    k = (2 * pad) + 1
+
+    padded = np.pad(binary, ((pad, pad), (pad, pad)), mode="constant")
+    integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant")
+    integral = integral.cumsum(axis=0).cumsum(axis=1)
+
+    rows, cols = binary.shape
+    # Integral image ile pencere toplamları
+    window_sum = (
+        integral[k:k + rows, k:k + cols]
+        - integral[:rows, k:k + cols]
+        - integral[k:k + rows, :cols]
+        + integral[:rows, :cols]
+    )
+    area = float(k * k)
+    return np.clip(window_sum / area, 0.0, 1.0).astype(np.float32)
+
+
+def apply_rock_obstacle_penalty(
+    layers: CostLayers,
+    rock_mask: np.ndarray,
+    *,
+    target_layer: str = "s",
+    direct_penalty: float = 35.0,
+    near_penalty: float = 12.0,
+    far_penalty: float = 4.0,
+    near_radius: int = 2,
+    far_radius: int = 5,
+) -> CostLayers:
+    """Kaya segmentasyon maskesini maliyet katmanlarına ceza olarak işler.
+
+    Hiyerarşik Kayar Pencere mantığı:
+      1) Kaya pikselinin kendisi: anında yüksek ceza (`direct_penalty`)
+      2) Yakın pencere yoğunluğu: orta ceza (`near_penalty`)
+      3) Uzak pencere yoğunluğu: düşük ceza (`far_penalty`)
+
+    Böylece A* geçiş maliyeti kaya bölgelerinden dinamik şekilde uzaklaştırılır.
+    """
+    mask = np.asarray(rock_mask)
+    if mask.ndim != 2:
+        raise ValueError(f"rock_mask 2D olmalı, elde edilen boyut: {mask.shape}")
+    if mask.shape != layers.s_map.shape:
+        raise ValueError(
+            "rock_mask ile maliyet katmanlarının şekli eşleşmiyor: "
+            f"mask={mask.shape}, layers={layers.s_map.shape}"
+        )
+
+    mask_f = (mask > 0).astype(np.float32)
+
+    near_density = _sliding_window_density(mask_f, radius=max(0, int(near_radius)))
+    far_density = _sliding_window_density(mask_f, radius=max(0, int(far_radius)))
+
+    penalty_map = (
+        (direct_penalty * mask_f)
+        + (near_penalty * near_density)
+        + (far_penalty * far_density)
+    ).astype(np.float32)
+
+    target = target_layer.strip().lower()
+    if target not in {"s", "e", "both"}:
+        raise ValueError("target_layer yalnızca 's', 'e' veya 'both' olabilir.")
+
+    new_s = layers.s_map.copy()
+    new_e = layers.e_map.copy()
+
+    if target in {"s", "both"}:
+        new_s = new_s + penalty_map
+    if target in {"e", "both"}:
+        new_e = new_e + penalty_map
+
+    return CostLayers(
+        z_norm=layers.z_norm,
+        e_map=new_e.astype(np.float32),
+        s_map=new_s.astype(np.float32),
+        g_map=layers.g_map,
+    )
+
+
 def _reconstruct_path(
     came_from: dict[GridPoint, GridPoint],
     goal: GridPoint,

@@ -154,16 +154,18 @@ def choose_default_start_goal(shape: tuple[int, int]) -> tuple[tuple[int, int], 
 
 
 def user_cost_formula(context: CostContext) -> float:
-    """Placeholder for user-provided objective formula.
+    """Mission cost with weighted friction, distance, slope, and shadow terms."""
 
-    IMPORTANT: Replace this implementation with the exact formula and weights
-    provided by the user (`alpha`, `beta`, `gamma`, etc.).
-    """
+    friction_weight = 0.15
+    distance_weight = 0.30
+    slope_weight = 0.45
+    shadow_weight = 0.10
 
-    raise NotImplementedError(
-        "Please replace user_cost_formula with the exact mission cost formula. "
-        f"Received context example: distance={context.distance:.3f}, "
-        f"local_slope={context.local_slope:.3f}, solar_penalty={context.solar_penalty:.3f}"
+    return (
+        friction_weight * context.friction_coefficient
+        + distance_weight * context.distance
+        + slope_weight * context.local_slope
+        + shadow_weight * context.solar_penalty
     )
 
 

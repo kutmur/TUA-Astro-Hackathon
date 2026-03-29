@@ -22,6 +22,7 @@ class CostContext:
         distance: Euclidean distance between current and neighbor cells.
         local_slope: Local slope proxy computed from elevation delta.
         solar_penalty: Placeholder for solar shadow penalty.
+        friction_coefficient: Surface friction coefficient for traversal.
     """
 
     current: GridPoint
@@ -29,6 +30,7 @@ class CostContext:
     distance: float
     local_slope: float
     solar_penalty: float
+    friction_coefficient: float
 
 
 class CostFunction(Protocol):
@@ -98,6 +100,16 @@ def estimate_solar_penalty(_current: GridPoint, _neighbor: GridPoint) -> float:
     return 0.0
 
 
+def estimate_friction_coefficient(_current: GridPoint, _neighbor: GridPoint) -> float:
+    """Returns traversal friction coefficient for the current surface.
+
+    The current project assumes a uniform surface, so this is constant.
+    Replace with per-cell or per-material lookup if a surface map is available.
+    """
+
+    return 1.0
+
+
 def reconstruct_path(came_from: dict[GridPoint, GridPoint], goal: GridPoint) -> list[GridPoint]:
     """Reconstructs a path from predecessor map."""
 
@@ -139,6 +151,7 @@ class AStarPathPlanner:
             distance=euclidean_distance(current, neighbor),
             local_slope=estimate_local_slope(self.elevation, current, neighbor),
             solar_penalty=estimate_solar_penalty(current, neighbor),
+            friction_coefficient=estimate_friction_coefficient(current, neighbor),
         )
 
     def plan(self, start: GridPoint, goal: GridPoint) -> list[GridPoint]:

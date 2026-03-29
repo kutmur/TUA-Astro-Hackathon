@@ -10,16 +10,16 @@ This project plans and visualizes rover routes on the Haworth crater terrain by 
 
 The result is a clear, explainable route analysis suitable for technical demo and jury presentation.
 
-## Demo Outputs
+## Demo (Input / Top View / Output)
 
-### 1) Base DEM Surface
-![Base DEM Surface](image_0.png)
+### Input
+![Input](input.png)
 
-### 2) Start/Goal Annotated Surface
-![Annotated Surface](image_1.png)
+### Top View
+![Top View](topview.png)
 
-### 3) Final Route Comparison
-![Final Routes](routes_output.png)
+### Output
+![Output](output.png)
 
 ## Why This Project Matters
 
@@ -116,33 +116,33 @@ Control crop/downsample:
 python3 ayap2_nav/main.py --window-size 1500 --downsample 1
 ```
 
-## Generated Files (Recommended Pipeline)
+## Generated Files
 
-Running `ayap2_nav/main.py` produces:
-- `01_base_surface.png`
-- `02_surface_with_markers.png`
-- `03_final_routes_analyzed.png`
+For the current submission/demo, we use three PNG files:
+- `input.png`
+- `topview.png`
+- `output.png`
 
-These are generated in the chosen `--output-dir`.
+If you run `ayap2_nav/main.py`, detailed analysis figures are still generated in the chosen `--output-dir`.
 
 ## Alternative Entry Points
 
 ### A) Single-Script A* + Plot
 
 ```bash
-python3 src/ayap2_astar_routes.py --dem-tif ./data/haworth_crater_DEM_1m.tif --save routes_output.png
+python3 src/ayap2_astar_routes.py --dem-tif ./data/haworth_crater_DEM_1m.tif --save output.png
 ```
 
 Headless run:
 
 ```bash
-python3 src/ayap2_astar_routes.py --dem-tif ./data/haworth_crater_DEM_1m.tif --save routes_output.png --no-show
+python3 src/ayap2_astar_routes.py --dem-tif ./data/haworth_crater_DEM_1m.tif --save output.png --no-show
 ```
 
 ### B) Direct DEM Visualization
 
 ```bash
-python3 src/plot.py --tif-path ./data/haworth_crater_DEM_1m.tif --save-annotated image_1.png --no-show
+python3 src/plot.py --tif-path ./data/haworth_crater_DEM_1m.tif --save-annotated input.png --no-show
 ```
 
 ### C) Generic Planning Skeleton

@@ -26,6 +26,32 @@ START_UV: Final[tuple[float, float]] = (0.0, 0.99)   # Row = En Üst,  Col = En 
 GOAL_UV: Final[tuple[float, float]]  = (0.5, 0.05)   # Row = Orta,    Col = En Sol
 
 # ─────────────────────────────────────────────────
+# Kamera / Perception Tetikleyicisi
+# ─────────────────────────────────────────────────
+
+# RAD750 kısıtı simülasyonu:
+# False iken segmentasyon modeli RAM'e yüklenmez.
+CAMERA_CONNECTED: Final[bool] = False
+
+# Mock kamera ayarları (OpenCV VideoCapture)
+CAMERA_DEVICE_INDEX: Final[int] = 0
+CAMERA_MAX_FRAMES: Final[int] = 45
+
+# U-Net + VGG16 inference ayarları
+SEGMENTATION_INPUT_SHAPE: Final[tuple[int, int, int]] = (500, 500, 3)
+SEGMENTATION_MODEL_WEIGHTS: Final[str] = "model_TL_UNET.h5"
+SEGMENTATION_VGG16_WEIGHTS: Final[str] = "imagenet"
+ROCK_MASK_THRESHOLD: Final[float] = 0.55
+
+# Planner entegrasyonu (Hiyerarşik Kayar Pencere ceza parametreleri)
+ROCK_PENALTY_TARGET_LAYER: Final[str] = "s"  # "s", "e" veya "both"
+ROCK_DIRECT_PENALTY: Final[float] = 35.0
+ROCK_NEAR_PENALTY: Final[float] = 12.0
+ROCK_FAR_PENALTY: Final[float] = 4.0
+ROCK_NEAR_WINDOW_RADIUS: Final[int] = 2
+ROCK_FAR_WINDOW_RADIUS: Final[int] = 5
+
+# ─────────────────────────────────────────────────
 # Rota Profili
 # ─────────────────────────────────────────────────
 

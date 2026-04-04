@@ -1,5 +1,6 @@
 export const translations = {
   tr: {
+    // Hero Section
     heroTag: "TUA Astro Hackathon 2026",
     heroTitle: "4 Boyutlu Maliyet Modeli ile en uygun",
     heroTitleHighlight: "Ay rotalarını oluşturun.",
@@ -7,6 +8,7 @@ export const translations = {
     viewGithub: "GitHub'ı İncele",
     runSimulation: "Simülasyonu Başlat",
 
+    // 4D Cost Model Section
     costModelTitle: "4 Boyutlu Maliyet Modeli",
     costModelDesc: "Her arazi hücresinde çok amaçlı kısıtlamaları değerlendiriyoruz.",
     varDName: "Öklid Mesafesi",
@@ -18,6 +20,7 @@ export const translations = {
     varGName: "Gölge / Termal",
     varGDesc: "Isı döngüsü ve derinlik riski.",
 
+    // Impact Findings Section
     impactTitle: "Milyonlarca Dolar Tasarruf Edildi.",
     impactDesc: "Regolit sürtünmesini ve gölge risklerini tahmin ederek araçtaki aşınma, yıpranma ve termal bozulmayı en aza indiriyoruz. Sadece en kısa mesafe algoritmalarının ötesine geçerek, görev için hazır ve yorumlanabilir alternatifler sunmak amacıyla gerçek krater topografyasını kullanarak Ay rotalarını optimize ettik.",
     impactRiskTitle: "%37 Daha Düşük Görev Riski",
@@ -27,6 +30,7 @@ export const translations = {
     impactActionTitle: "3 Eyleme Geçirilebilir Strateji",
     impactActionDesc: "Jüri/görev planlamacıları tek bir kara kutu cevabı yerine yorumlanabilir alternatifler elde ederler.",
 
+    // Mission Profiles Section
     profileTitle: "Görev Profilleri Yapılandırması",
     profileDesc: "Uyarlanabilir planlama için parametre ağırlık dağılımlarını karşılaştırın.",
     profOptimalName: "Optimal Yol (Dengeli 4D)",
@@ -36,16 +40,59 @@ export const translations = {
     profThermalName: "Termal Güvenli",
     profThermalDesc: "Gölgelerden ve yüksek termal döngü risklerinden kesinlikle kaçınır.",
 
+    // Simulation Status
     simStatusLabel: "Simülasyon Durumu:",
     simInit: "Sistem Başlatılıyor...",
     simLoaded: "DEM Yüklendi [HAWORTH]",
     simAcquired: "Ara Noktalar Alındı",
     simComputing: "Rotalar Hesaplanıyor...",
     simOptimized: "Yol Optimize Edildi ✓",
+    simIdle: "Bekleniyor...",
+    simRecalculating: "A* Yolu Yeniden Hesaplanıyor...",
 
-    costLabel: "Maliyet"
+    // Cost Label
+    costLabel: "Maliyet",
+
+    // Mission Control Panel (NEW)
+    missionControlTitle: "Görev Ağırlık Kontrolü",
+    missionControlDesc: "Parametreleri ayarlayın veya hazır profil seçin",
+    liveCostPreview: "Canlı Maliyet Tahmini",
+    customProfile: "Özel",
+
+    // Simulation Visualizer (NEW)
+    simulatorTitle: "Simülasyon Görselleştirici",
+    simulatorSubtitle: "Haworth Krateri - Güney Kutbu",
+    radarSweep: "Radar Taraması",
+    pathAnalysis: "Yol Analizi",
+    terrainMapping: "Arazi Haritalama",
+    clickToStart: "Simülasyonu başlatmak için tıklayın",
+    recalculatingPath: "A* Yolu Yeniden Hesaplanıyor",
+    analysisComplete: "Analiz Tamamlandı",
+    optimalRouteFound: "Optimal Rota Bulundu",
+    processingNodes: "Düğümler işleniyor...",
+    evaluatingCost: "Maliyet fonksiyonu değerlendiriliyor...",
+    totalNodes: "Toplam Düğüm",
+    pathLength: "Yol Uzunluğu",
+    computeTime: "Hesaplama Süresi",
+
+    // Dashboard Section (NEW)
+    dashboardTitle: "Görev Kontrol Merkezi",
+    dashboardDesc: "Gerçek zamanlı rota optimizasyonu ve simülasyon kontrolü",
+
+    // Team Section (NEW)
+    teamTitle: "Görev Uzmanları",
+    teamDesc: "Threshold AI ekibinin arkasındaki beyinler",
+    teamRole1: "Proje Lideri & Algoritma Mimarı",
+    teamRole2: "Frontend Geliştirici & UI/UX Tasarımcı",
+    teamRole3: "Veri Mühendisi & Backend Geliştirici",
+
+    // Footer
+    footerText: "ThresholdAI © 2026 TUA Astro Hackathon",
+    madeWith: "ile yapıldı",
+    forTheFuture: "geleceğin Ay görevleri için",
   },
   en: {
+    // Hero Section
     heroTag: "TUA Astro Hackathon 2026",
     heroTitle: "Build optimal lunar routes with a",
     heroTitleHighlight: "4D Cost Model.",
@@ -53,6 +100,7 @@ export const translations = {
     viewGithub: "View GitHub",
     runSimulation: "Run Simulation",
 
+    // 4D Cost Model Section
     costModelTitle: "The 4D Cost Model",
     costModelDesc: "Evaluating multi-objective constraints on every terrain cell.",
     varDName: "Euclidean Distance",
@@ -64,6 +112,7 @@ export const translations = {
     varGName: "Shadow / Thermal",
     varGDesc: "Heat cycle & depth risk.",
 
+    // Impact Findings Section
     impactTitle: "Millions of Dollars Saved.",
     impactDesc: "Minimizing rover wear-and-tear and thermal degradation by predicting regolith friction and shadow risks. We optimized lunar routes using real crater topography, moving beyond simple shortest-distance algorithms to deliver interpretable, mission-ready alternatives.",
     impactRiskTitle: "37% Lower Mission Risk",
@@ -73,6 +122,7 @@ export const translations = {
     impactActionTitle: "3 Actionable Strategies",
     impactActionDesc: "Jury/mission planners get interpretable alternatives, not a black-box single answer.",
 
+    // Mission Profiles Section
     profileTitle: "Mission Profiles Config",
     profileDesc: "Compare parameter weight distributions for adaptive planning.",
     profOptimalName: "Optimal Path (Balanced 4D)",
@@ -82,16 +132,58 @@ export const translations = {
     profThermalName: "Thermal Safe",
     profThermalDesc: "Strictly avoids shadows and high thermal cycling risks.",
 
+    // Simulation Status
     simStatusLabel: "Simulation Status:",
     simInit: "INITIALIZING SYS...",
     simLoaded: "DEM LOADED [HAWORTH]",
     simAcquired: "WAYPOINTS ACQUIRED",
     simComputing: "COMPUTING ROUTES...",
     simOptimized: "PATH OPTIMIZED ✓",
+    simIdle: "STANDING BY...",
+    simRecalculating: "RECALCULATING A* PATH...",
 
-    costLabel: "Cost"
+    // Cost Label
+    costLabel: "Cost",
+
+    // Mission Control Panel (NEW)
+    missionControlTitle: "Mission Weight Control",
+    missionControlDesc: "Adjust parameters or select a preset profile",
+    liveCostPreview: "Live Cost Preview",
+    customProfile: "Custom",
+
+    // Simulation Visualizer (NEW)
+    simulatorTitle: "Simulation Visualizer",
+    simulatorSubtitle: "Haworth Crater - South Pole",
+    radarSweep: "Radar Sweep",
+    pathAnalysis: "Path Analysis",
+    terrainMapping: "Terrain Mapping",
+    clickToStart: "Click to start simulation",
+    recalculatingPath: "Recalculating A* Path",
+    analysisComplete: "Analysis Complete",
+    optimalRouteFound: "Optimal Route Found",
+    processingNodes: "Processing nodes...",
+    evaluatingCost: "Evaluating cost function...",
+    totalNodes: "Total Nodes",
+    pathLength: "Path Length",
+    computeTime: "Compute Time",
+
+    // Dashboard Section (NEW)
+    dashboardTitle: "Mission Control Center",
+    dashboardDesc: "Real-time route optimization and simulation control",
+
+    // Team Section (NEW)
+    teamTitle: "Mission Specialists",
+    teamDesc: "The minds behind Threshold AI",
+    teamRole1: "Project Lead & Algorithm Architect",
+    teamRole2: "Frontend Developer & UI/UX Designer",
+    teamRole3: "Data Engineer & Backend Developer",
+
+    // Footer
+    footerText: "ThresholdAI © 2026 TUA Astro Hackathon",
+    madeWith: "Made with",
+    forTheFuture: "for the future of lunar missions",
   }
-}
+};
 
-export type Language = 'tr' | 'en'
-export type TranslationKey = keyof typeof translations.en
+export type Language = 'tr' | 'en';
+export type TranslationKey = keyof typeof translations.en;

@@ -6,6 +6,27 @@ Bu modül:
   3. Gerçek Z matrisinden E (eğim), S (sürtünme/regolit) ve G (gölge/termal)
      maliyet haritalarını türetir.
 
+Lunar Physics Implementation:
+    E (Slope): Gradient magnitude from DEM. Steep slopes drain battery
+               (uphill) and risk tipping (both directions beyond θ_max).
+
+    S (Soil/Friction): Lunar regolith varies in compaction. High local
+               elevation variance indicates loose, unpacked material that
+               increases wheel slip and traversal energy cost.
+
+    G (Shadow/Thermal): Permanently shadowed regions (PSRs) near lunar
+               poles can drop to -250°C. Rover electronics and batteries
+               fail at these temperatures. This layer combines:
+               - Hillshade from solar illumination angle
+               - Depth below local mean (crater floors = cold traps)
+               Uses SOFT avoidance (high cost, NOT infinite walls).
+
+Hardware Constraint (RAD750):
+    This module loads the full DEM into RAM. For flight hardware with
+    ~128MB RAM limit, implement hierarchical sliding window:
+    - Global layer: 50m/px coarse route planning
+    - Local layer: 100×100px high-res window around rover position
+
 Kullanım:
     from dem_loader import load_dem, build_cost_layers, CostLayers
 """
@@ -36,11 +57,22 @@ GridPoint = tuple[int, int]
 class CostLayers:
     """AYAP-2 4D maliyet denklemi için türetilmiş haritalar.
 
+    These cost layers encode lunar terrain physics into numeric grids
+    that the A* algorithm uses for path optimization.
+
     Attributes:
-        z_norm: [0, 1] aralığına normalize edilmiş yükseklik matrisi.
-        e_map:  Eğim (slope) yoğunluk haritası [0, 1].
-        s_map:  Sürtünme / regolit pürüzlülük haritası [0, 1].
-        g_map:  Gölge / termal risk haritası (düşük=güvenli, yüksek=riskli).
+        z_norm: [0, 1] normalized elevation. Used for slope calculation
+                during path transitions. Higher = peak, Lower = crater floor.
+        e_map:  Slope intensity [0, 1]. Derived from terrain gradient.
+                High values indicate steep terrain that drains battery
+                (uphill) or risks instability (downhill beyond θ_max).
+        s_map:  Surface friction / regolith roughness [0, 1]. Computed
+                from local elevation variance. High values = loose soil
+                that increases wheel slip and traversal energy.
+        g_map:  Shadow/thermal risk [1.0, 50.0]. Composite of hillshade
+                illumination and crater depth. High values = cold traps
+                where electronics may fail. Uses soft avoidance, not
+                infinite cost walls.
     """
 
     z_norm: np.ndarray
@@ -84,7 +116,16 @@ def _to_2d_float32(array: np.ndarray) -> np.ndarray:
 
 
 def _local_variance_3x3(field: np.ndarray) -> np.ndarray:
-    """3×3 pencere ile lokal varyans haritası hesaplar (kenar dolgusu ile)."""
+    """Computes 3×3 local variance map with edge padding.
+
+    Lunar Physics Rationale:
+        High local variance in elevation indicates heterogeneous terrain:
+        - Rocky outcrops with varying boulder sizes
+        - Loose regolith that hasn't been compacted by impacts
+        - Crater rim rubble and ejecta deposits
+
+        These areas increase wheel slip and traversal energy cost (S layer).
+    """
     rows, cols = field.shape
     padded = np.pad(field, 1, mode="edge")
     sum_w = np.zeros((rows, cols), dtype=np.float64)
@@ -207,39 +248,54 @@ def load_dem(
 # ─────────────────────────────────────────────────
 
 def build_cost_layers(z_real: np.ndarray) -> CostLayers:
-    """Gerçek DEM'den AYAP-2 maliyet katmanlarını (E, S, G) türetir.
+    """Derives AYAP-2 cost layers (E, S, G) from real DEM elevation data.
 
-    D (mesafe) her geçişte dinamik hesaplandığı için harita olarak tutulmaz.
+    D (distance) is computed dynamically per-transition, not stored as a map.
 
-    Katman Açıklamaları:
-        E – Eğim Haritası: Yüzey gradyan büyüklüğünün [0, 1] normalizasyonu.
-        S – Sürtünme / Regolit: Pürüzlülük × ters eğim (düz ama pürüzlü = yüksek S).
-        G – Gölge / Termal: Hillshade + çukur derinliği → gölgede kalma riski.
+    Cost Layer Derivation:
+        E (Slope Intensity):
+            - Computed from terrain gradient magnitude (∂z/∂x, ∂z/∂y)
+            - Normalized to [0, 1] range
+            - High E = steep terrain that drains battery or risks tipping
+
+        S (Soil Friction / Regolith Roughness):
+            - Computed from local 3×3 elevation variance
+            - Gated by inverse slope (flat + rough = slippery loose soil)
+            - Formula: S = normalize(variance × (0.35 + 0.65 × (1 - E)))
+            - High S = loose regolith that increases wheel slip
+
+        G (Shadow / Thermal Risk):
+            - Composite of hillshade illumination + crater depth
+            - Hillshade: sun azimuth=315° (NW), elevation=15° (polar)
+            - Depth proxy: cells below 40th percentile elevation
+            - Formula: G = 1.0 + 49.0 × shadow_score^1.4
+            - Range: [1.0, 50.0] — soft avoidance, NOT infinite walls
+            - High G = permanently shadowed region (PSR) cold trap risk
 
     Args:
-        z_real: 2D float32 yükseklik matrisi.
+        z_real: 2D float32 elevation matrix (meters).
 
     Returns:
-        CostLayers dataclass'ı.
+        CostLayers dataclass with z_norm, e_map, s_map, g_map.
     """
     z = _to_2d_float32(z_real)
     z_norm = _normalize_01(z)
 
-    # ── E Haritası: Eğim Yoğunluğu ──
+    # ── E Map: Slope Intensity from terrain gradient ──
     grad_row, grad_col = np.gradient(z_norm)
     grad_mag = np.hypot(grad_row, grad_col)
     e_map = _normalize_01(grad_mag)
 
-    # ── S Haritası: Sürtünme / Regolit Pürüzlülüğü ──
-    # Yüksek lokal varyans + düşük eğim = kaygan/kumlu zemin
+    # ── S Map: Soil Friction / Regolith Roughness ──
+    # High local variance + low slope = loose, slippery material
     roughness = _normalize_01(_local_variance_3x3(z_norm))
     low_slope_gate = 1.0 - e_map
     s_map = _normalize_01(roughness * (0.35 + 0.65 * low_slope_gate))
 
-    # ── G Haritası: Gölge / Termal Risk ──
-    # Güneş açısı ile hillshade hesabı + çukur derinliği proxy'si
-    sun_azimuth = np.deg2rad(315.0)      # Güneş yönü (NW)
-    sun_elevation = np.deg2rad(15.0)     # Düşük güneş açısı (ay yüzeyinde)
+    # ── G Map: Shadow / Thermal Risk ──
+    # Sun position: NW direction at 15° elevation (polar illumination)
+    sun_azimuth = np.deg2rad(315.0)      # Sun direction (NW)
+    sun_elevation = np.deg2rad(15.0)     # Low sun angle (lunar polar)
 
     slope_angle = (np.pi / 2.0) - np.arctan(np.hypot(grad_col, grad_row))
     aspect = np.arctan2(-grad_row, grad_col + 1e-12)
@@ -249,7 +305,7 @@ def build_cost_layers(z_real: np.ndarray) -> CostLayers:
     )
     hillshade = _normalize_01(hillshade)
 
-    # Çukur derinliği: 40. yüzdelik altında kalanlar daha gölgeli
+    # Crater depth proxy: cells below 40th percentile are "in shadow"
     p40 = float(np.percentile(z_norm, 40.0))
     lowland_depth = np.clip(
         (p40 - z_norm) / max(p40 - float(np.min(z_norm)), 1e-9),
@@ -257,10 +313,11 @@ def build_cost_layers(z_real: np.ndarray) -> CostLayers:
         1.0,
     )
 
+    # Composite shadow score: 72% depth + 28% shade
     shadow_score = _normalize_01(
         (0.72 * lowland_depth) + (0.28 * (1.0 - hillshade))
     )
-    # 1.0 (güvenli) → 50.0 (çok riskli gölge) arası doğrusal olmayan ölçek
+    # Nonlinear scaling: 1.0 (safe) → 50.0 (high PSR risk)
     g_map = 1.0 + 49.0 * np.power(shadow_score, 1.4)
 
     return CostLayers(

@@ -1,13 +1,18 @@
-"""AYAP-2 Matplotlib 3D Görselleştirme Motoru.
+"""AYAP-2 Matplotlib 3D/2D Görselleştirme Motoru.
 
 Bu modül sadece çizim ve diske kaydetme işlemlerinden sorumludur.
 Hiçbir veri işleme veya planlama mantığı içermez.
 
-KESİN KURALLAR:
+KESİN KURALLAR (Jury Requirements):
+  • input.png: 3D DEM surface with A/B markers (no routes)
+  • topview.png: 2D heatmap with elevation colorbar
+  • output.png: 3D DEM with all 3 routes overlaid + legend
+
+Visualization Standards:
   • Kamera açısı: view_init(elev=38, azim=228)
   • A/B noktaları "Bayrak Direği" formatında çizilir
-  • Rota çizgileri Z-Offset ile yüzeyden kaldırılır: Z_path = Z_surface + (Z_span × 0.04)
-  • Rota çizgi kalınlığı ≥ 3
+  • Rota çizgileri Z-Offset ile yüzeyden kaldırılır
+  • Elevation color scale: dark brown = peaks, dark blue = crater floors
 
 Kullanım:
     from visualization import DEMVisualizer
@@ -39,12 +44,12 @@ GridPoint = tuple[int, int]
 
 
 class DEMVisualizer:
-    """AYAP-2 3D DEM ve rota çizim sınıfı.
+    """AYAP-2 3D/2D DEM ve rota çizim sınıfı.
 
-    Bu sınıf, kademeli (3 aşamalı) görselleştirme iş akışını destekler:
-        1. Çıplak 3D yüzey
-        2. Yüzey + A/B bayrak direkleri
-        3. Yüzey + Noktalar + Rotalar + Lejant
+    Bu sınıf, jury-grade görselleştirme iş akışını destekler:
+        • input.png: 3D surface + A/B markers
+        • topview.png: 2D elevation heatmap
+        • output.png: 3D surface + A/B markers + 3 routes + legend
     """
 
     def __init__(self, cfg: ProjectConfig | None = None) -> None:
@@ -57,8 +62,14 @@ class DEMVisualizer:
     def _create_base_surface(
         self,
         z_real: np.ndarray,
+        title: str = "Lunar DEM 3D Surface — Haworth Crater",
     ) -> tuple[Figure, Axes3D]:
         """Temel 3D DEM yüzeyini oluşturur.
+
+        Lunar terrain visualization with:
+          - gist_earth colormap: dark brown peaks, dark blue crater floors
+          - High alpha for solid surface appearance
+          - Fixed camera angle for consistent jury presentation
 
         Returns:
             (figure, axes3d) tuple'ı.
@@ -79,17 +90,17 @@ class DEMVisualizer:
             alpha=self.cfg.surface_alpha,
             zorder=1,
         )
-        fig.colorbar(surface, shrink=0.60, pad=0.08, label="Yükseklik (m)")
+        fig.colorbar(surface, shrink=0.60, pad=0.08, label="Elevation (m)")
 
         ax.set_title(
-            "TUA AYAP-2 | Haworth Krateri DEM — 4D A* Rota Simülasyonu",
+            title,
             fontsize=13,
             fontweight="bold",
             pad=12,
         )
-        ax.set_xlabel("Sütun (Col)", fontsize=10)
-        ax.set_ylabel("Satır (Row)", fontsize=10)
-        ax.set_zlabel("Yükseklik", fontsize=10)
+        ax.set_xlabel("Column (Col)", fontsize=10)
+        ax.set_ylabel("Row", fontsize=10)
+        ax.set_zlabel("Elevation (m)", fontsize=10)
 
         # KESİN KURAL: Sabit kamera açısı
         ax.view_init(elev=self.cfg.camera_elev, azim=self.cfg.camera_azim)
@@ -112,6 +123,9 @@ class DEMVisualizer:
     ) -> None:
         """Yüzeyden yukarı doğru siyah direk + parlak marker + etiket çizer.
 
+        Creates a "flagpole" marker that stands above the terrain surface,
+        making start/end points clearly visible even in 3D views.
+
         Args:
             ax: Matplotlib 3D ekseni.
             z_surface: Gerçek yükseklik matrisi (Z değerini almak için).
@@ -127,7 +141,7 @@ class DEMVisualizer:
         z0 = float(z_surface[row, col])
         z1 = z0 + pole_height
 
-        # Siyah direk
+        # Siyah direk (vertical line from surface to marker)
         ax.plot(
             [x, x], [y, y], [z0, z1],
             color="black",
@@ -135,7 +149,7 @@ class DEMVisualizer:
             zorder=1000,
         )
 
-        # Parlak marker
+        # Parlak marker at top of pole
         ax.scatter(
             [x], [y], [z1],
             s=200,
@@ -184,7 +198,7 @@ class DEMVisualizer:
             ax=ax,
             z_surface=z_real,
             point=start,
-            label="A (Başlangıç)",
+            label="A (Start)",
             marker_color="red",
             marker_shape="v",
             pole_height=pole_height,
@@ -193,7 +207,7 @@ class DEMVisualizer:
             ax=ax,
             z_surface=z_real,
             point=goal,
-            label="B (Hedef)",
+            label="B (Goal)",
             marker_color="lime",
             marker_shape="D",
             pole_height=pole_height,
@@ -209,7 +223,11 @@ class DEMVisualizer:
         z_real: np.ndarray,
         routes: list[RouteResult],
     ) -> None:
-        """Rota çizgilerini Z-Offset ile yüzeyin üzerine çizer."""
+        """Rota çizgilerini Z-Offset ile yüzeyin üzerine çizer.
+
+        Routes are lifted above the terrain surface to remain visible
+        from all camera angles. The offset is proportional to terrain relief.
+        """
         z_span = float(np.max(z_real) - np.min(z_real))
         z_offset = z_span * self.cfg.z_offset_ratio  # KESİN KURAL
 
@@ -240,7 +258,7 @@ class DEMVisualizer:
         """Sağ üst köşeye siyah arka planlı profesyonel lejant ekler."""
         legend = ax.legend(
             loc="upper right",
-            title="Kümülatif Maliyet (C)",
+            title="Cumulative Cost (C)",
             facecolor="black",
             edgecolor="white",
             framealpha=0.92,
@@ -250,6 +268,46 @@ class DEMVisualizer:
         legend.get_title().set_color("white")
         for text in legend.get_texts():
             text.set_color("white")
+
+    # ─────────────────────────────────────────────
+    # 2D Heatmap (Top View)
+    # ─────────────────────────────────────────────
+
+    def _create_topview_heatmap(
+        self,
+        z_real: np.ndarray,
+        title: str = "Lunar DEM Top View",
+    ) -> Figure:
+        """Creates 2D elevation heatmap (bird's eye view).
+
+        This view is essential for understanding terrain layout and
+        route planning context without 3D perspective distortion.
+
+        Args:
+            z_real: 2D elevation matrix.
+            title: Plot title.
+
+        Returns:
+            Matplotlib Figure object.
+        """
+        fig, ax = plt.subplots(figsize=(12, 10))
+
+        # Use gist_earth for consistency with 3D view
+        im = ax.imshow(
+            z_real,
+            cmap=self.cfg.surface_cmap,
+            origin="upper",
+            aspect="equal",
+        )
+
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+        cbar.set_label("Elevation (m)", fontsize=11)
+
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.set_xlabel("Column", fontsize=11)
+        ax.set_ylabel("Row", fontsize=11)
+
+        return fig
 
     # ─────────────────────────────────────────────
     # Diske Kaydetme
@@ -267,10 +325,116 @@ class DEMVisualizer:
             facecolor="white",
             edgecolor="none",
         )
-        print(f"[KAYIT] {path}")
+        print(f"  [SAVED] {path}")
 
     # ─────────────────────────────────────────────
-    # Kademeli (3 Adım) Genel Çizim Fonksiyonları
+    # Jury-Grade Output Functions (3 Required Files)
+    # ─────────────────────────────────────────────
+
+    def plot_input_png(
+        self,
+        z_real: np.ndarray,
+        start: GridPoint,
+        goal: GridPoint,
+        save_path: Path,
+    ) -> Path:
+        """Generates input.png: 3D DEM with A/B markers (no routes).
+
+        Jury Requirement:
+            - 3D surface plot of the real DEM
+            - Red marker pole at start point A (labeled)
+            - Green marker pole at goal point B (labeled)
+            - Elevation color scale: dark brown = peaks, dark blue = crater floors
+            - Title: "Lunar DEM 3D Surface — Haworth Crater"
+
+        Args:
+            z_real: 2D elevation matrix.
+            start: A point (row, col).
+            goal: B point (row, col).
+            save_path: Output path for input.png.
+
+        Returns:
+            Path to the saved PNG file.
+        """
+        fig, ax = self._create_base_surface(
+            z_real,
+            title="Lunar DEM 3D Surface — Haworth Crater",
+        )
+        self._add_markers(ax, z_real, start, goal)
+        self._save_figure(fig, save_path)
+        plt.close(fig)
+        return save_path
+
+    def plot_topview_png(
+        self,
+        z_real: np.ndarray,
+        save_path: Path,
+    ) -> Path:
+        """Generates topview.png: 2D heatmap of DEM elevation.
+
+        Jury Requirement:
+            - 2D heatmap (plt.imshow) of DEM elevation
+            - Labeled axes (Row / Column)
+            - Colorbar with elevation values
+            - Title: "Lunar DEM Top View"
+
+        Args:
+            z_real: 2D elevation matrix.
+            save_path: Output path for topview.png.
+
+        Returns:
+            Path to the saved PNG file.
+        """
+        fig = self._create_topview_heatmap(
+            z_real,
+            title="Lunar DEM Top View",
+        )
+        self._save_figure(fig, save_path)
+        plt.close(fig)
+        return save_path
+
+    def plot_output_png(
+        self,
+        z_real: np.ndarray,
+        start: GridPoint,
+        goal: GridPoint,
+        routes: list[RouteResult],
+        save_path: Path,
+    ) -> Path:
+        """Generates output.png: 3D DEM with all routes overlaid.
+
+        Jury Requirement:
+            - Same 3D surface as input.png
+            - Three routes overlaid with z-lift (visible above terrain):
+                Yellow solid line    → Balanced 4D   | C = ~590,502
+                Cyan dashed line     → Shortest Dist | C = ~1,345,804
+                Magenta dotted line  → Thermal Safe  | C = ~9,030,179
+            - Legend showing profile names + cumulative costs
+            - Title: "TUA AYAP-2 | Real DEM A* 4D Route Simulation"
+
+        Args:
+            z_real: 2D elevation matrix.
+            start: A point (row, col).
+            goal: B point (row, col).
+            routes: List of RouteResult objects.
+            save_path: Output path for output.png.
+
+        Returns:
+            Path to the saved PNG file.
+        """
+        fig, ax = self._create_base_surface(
+            z_real,
+            title="TUA AYAP-2 | Real DEM A* 4D Route Simulation",
+        )
+        self._add_markers(ax, z_real, start, goal)
+        self._add_routes(ax, z_real, routes)
+        self._add_legend(ax)
+        self._save_figure(fig, save_path)
+        plt.close(fig)
+        return save_path
+
+    # ─────────────────────────────────────────────
+    # Legacy Step-by-Step Functions (Backward Compatibility)
     # ─────────────────────────────────────────────
 
     def plot_step1_base_surface(

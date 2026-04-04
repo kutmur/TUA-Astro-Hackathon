@@ -5,11 +5,19 @@ Bu modül `heapq` tabanlı gerçek 8-yönlü A* algoritmasını içerir.
 Geçiş maliyeti formülü (AYAP-2 4D Cost Denklemi):
     C_toplam = [ (W_d × D) + (W_e × E) + (W_s × S) + (W_g × G) ] × 1000
 
-Burada:
-    D = Öklid mesafesi (grid biriminde)
-    E = Asimetrik eğim maliyeti (yokuş yukarı ceza, hafif iniş ödül)
-    S = Sürtünme / regolit maliyeti (komşu ortalaması)
-    G = Gölge / termal risk maliyeti (komşu ortalaması)
+Lunar Physics Implementation:
+    D = Öklid mesafesi (kinematik enerji proxy'si)
+    E = Asimetrik U-eğrili eğim maliyeti:
+        • Düz (θ ≈ 0): Temel maliyet
+        • Hafif iniş (θ < 0): Küçük ödül (rejeneratif frenleme)
+        • Dik yokuş yukarı (θ >> 0): Üstel ceza
+        • θ > θ_max: Maliyet = 10,000 (pratik sonsuz, geçilemez)
+    S = Yüzey sürtünmesi / regolit pürüzlülük proxy'si
+    G = Gölge / termal risk (YUMUŞAK kaçınma, sonsuz duvar DEĞİL)
+
+Hardware Constraint (RAD750):
+    The full-grid A* here assumes the DEM fits in RAM. For flight hardware,
+    use hierarchical sliding window: coarse global plan + local 100x100 window.
 
 Kullanım:
     from planner import astar_search, RouteResult
@@ -17,18 +25,34 @@ Kullanım:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from heapq import heappop, heappush
-from math import sqrt
+from math import atan2, sqrt
 
 import numpy as np
 
 try:
-    from .config import RouteProfile
+    from .config import (
+        THETA_MAX_COST,
+        THETA_MAX_RAD,
+        RouteProfile,
+        get_dynamic_wg,
+    )
     from .dem_loader import CostLayers
 except ImportError:
-    from config import RouteProfile
+    from config import (
+        THETA_MAX_COST,
+        THETA_MAX_RAD,
+        RouteProfile,
+        get_dynamic_wg,
+    )
     from dem_loader import CostLayers
+
+# ─────────────────────────────────────────────────
+# Logger Configuration
+# ─────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────
 # Tip Tanımları
@@ -67,7 +91,10 @@ class RouteResult:
 # ─────────────────────────────────────────────────
 
 def _euclidean(a: GridPoint, b: GridPoint) -> float:
-    """İki grid noktası arasındaki Öklid mesafesini hesaplar."""
+    """İki grid noktası arasındaki Öklid mesafesini hesaplar.
+
+    Diagonal moves use √2 ≈ 1.414 for correct 8-connectivity cost.
+    """
     return sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
@@ -77,28 +104,58 @@ def _asymmetric_slope_cost(
     distance: float,
     layers: CostLayers,
 ) -> float:
-    """Asimetrik U-eğrili eğim maliyeti.
+    """Asimetrik U-eğrili eğim maliyeti hesaplar.
 
-    Davranış:
-      • Hafif iniş → küçük ödül (düşük maliyet)
-      • Dik yokuş yukarı → üstel ceza
-      • Çok dik iniş → stabilite riski cezası
+    Lunar Physics Implementation:
+        • Hafif iniş → küçük ödül (rejeneratif frenleme potansiyeli)
+        • Dik yokuş yukarı → üstel ceza (motor yükü, enerji tüketimi)
+        • Çok dik iniş → stabilite riski cezası
+        • θ > θ_max → THETA_MAX_COST (pratik sonsuz, tipping riski)
+
+    The asymmetric U-curve models:
+        - Flat terrain: baseline traversal cost
+        - Mild downhill: slight energy recovery (regenerative braking)
+        - Steep uphill: exponential penalty (motor strain, battery drain)
+        - Very steep downhill: stability penalty (rollover risk)
+        - Beyond θ_max: effectively impassable (10,000 cost)
     """
     z_cur = float(layers.z_norm[current])
     z_nbr = float(layers.z_norm[neighbor])
     signed_grade = (z_nbr - z_cur) / max(distance, 1e-9)
 
+    # Check θ_max threshold for tipping safety
+    # NOTE: This uses normalized elevation (z_norm in [0,1]) and grid-unit distance.
+    # The resulting "angle" is approximate and tuned for the 256x256 Haworth DEM.
+    # For flight-grade accuracy, convert z_norm back to meters using DEM metadata
+    # (z_span_m, cell_size_m) to compute real slope angles.
+    slope_angle = abs(atan2(z_nbr - z_cur, distance))
+    if slope_angle > THETA_MAX_RAD:
+        logger.debug(
+            "Slope %.2f° exceeds θ_max at %s→%s, applying max cost",
+            slope_angle * 180 / 3.14159,
+            current,
+            neighbor,
+        )
+        return THETA_MAX_COST
+
     uphill = max(signed_grade, 0.0)
     downhill = max(-signed_grade, 0.0)
 
+    # Local gradient from precomputed E-map (average of both cells)
     local_grad = 0.5 * (
         float(layers.e_map[current]) + float(layers.e_map[neighbor])
     )
 
+    # Exponential uphill penalty: motor load increases exponentially
     uphill_penalty = float(np.expm1(7.5 * uphill))
+
+    # Mild downhill reward: regenerative braking opportunity
+    # Gaussian centered at 5% grade, σ=3%
     mild_downhill_reward = float(
         -0.18 * np.exp(-((downhill - 0.05) ** 2) / (2.0 * 0.03 ** 2))
     )
+
+    # Steep downhill penalty: stability risk beyond 18% grade
     steep_downhill_penalty = 4.0 * max(downhill - 0.18, 0.0) ** 2
 
     e_value = local_grad + uphill_penalty + steep_downhill_penalty + mild_downhill_reward
@@ -110,28 +167,53 @@ def _transition_cost(
     neighbor: GridPoint,
     profile: RouteProfile,
     layers: CostLayers,
+    battery_soc: float | None = None,
 ) -> float:
     """AYAP-2 4D geçiş maliyetini hesaplar.
 
-    C_toplam = (W_d×D + W_e×E + W_s×S + W_g×G) × 1000
+    Full Cost Equation:
+        C_total = (W_d×D + W_e×E + W_s×S + W_g×G) × 1000
+
+    Args:
+        current: Source grid point.
+        neighbor: Target grid point.
+        profile: Route profile with base weights.
+        layers: Precomputed cost layers.
+        battery_soc: Battery state-of-charge (0-100%) for dynamic W_g.
+                     If None, uses profile's base wg (no survival override).
+
+    Returns:
+        Total transition cost (float).
     """
     d_val = _euclidean(current, neighbor)
     e_val = _asymmetric_slope_cost(current, neighbor, d_val, layers)
+
+    # S and G use average of both cells (smooth transition)
     s_val = 0.5 * (float(layers.s_map[current]) + float(layers.s_map[neighbor]))
     g_val = 0.5 * (float(layers.g_map[current]) + float(layers.g_map[neighbor]))
+
+    # Use profile's base W_g unless battery SoC triggers survival mode
+    if battery_soc is not None:
+        effective_wg = get_dynamic_wg(battery_soc, profile.wg)
+    else:
+        effective_wg = profile.wg
 
     total = (
         (profile.wd * d_val)
         + (profile.we * e_val)
         + (profile.ws * s_val)
-        + (profile.wg * g_val)
+        + (effective_wg * g_val)
     ) * 1000.0
 
     return float(total)
 
 
 def _heuristic(point: GridPoint, goal: GridPoint, profile: RouteProfile) -> float:
-    """A* için kabul edilebilir (admissible) sezgisel: ağırlıklı Öklid mesafesi."""
+    """A* için kabul edilebilir (admissible) sezgisel: ağırlıklı Öklid mesafesi.
+
+    This heuristic is admissible because it only considers the distance
+    component (D) which is the minimum possible cost to reach the goal.
+    """
     return profile.wd * _euclidean(point, goal) * 1000.0
 
 
@@ -140,6 +222,8 @@ def _sliding_window_density(mask: np.ndarray, radius: int) -> np.ndarray:
 
     Bu fonksiyon, Hiyerarşik Kayar Pencere yaklaşımında her pikselin
     çevresindeki engel yoğunluğunu [0, 1] aralığında verir.
+
+    Uses integral image for O(1) per-pixel computation regardless of radius.
     """
     binary = np.asarray(mask, dtype=np.float32)
     if binary.ndim != 2:
@@ -185,7 +269,8 @@ def apply_rock_obstacle_penalty(
       2) Yakın pencere yoğunluğu: orta ceza (`near_penalty`)
       3) Uzak pencere yoğunluğu: düşük ceza (`far_penalty`)
 
-    Böylece A* geçiş maliyeti kaya bölgelerinden dinamik şekilde uzaklaştırılır.
+    This creates a smooth gradient of avoidance around obstacles rather
+    than hard binary walls, improving path quality and stability.
     """
     mask = np.asarray(rock_mask)
     if mask.ndim != 2:
@@ -251,8 +336,21 @@ def astar_search(
     goal: GridPoint,
     profile: RouteProfile,
     layers: CostLayers,
+    battery_soc: float | None = None,
 ) -> RouteResult:
     """8-yönlü heapq tabanlı A* araması çalıştırır.
+
+    Implementation Details:
+        - g(n): Full 4D cumulative cost from start to node n
+        - h(n): Admissible heuristic (weighted Euclidean distance)
+        - f(n) = g(n) + h(n): Total estimated cost through node n
+        - 8-connectivity with √2 diagonal distance
+
+    Lunar Physics Integration:
+        - Asymmetric U-curve slope cost (E)
+        - θ_max enforcement (tipping threshold)
+        - Dynamic W_g based on battery SoC (survival mode)
+        - Soft shadow avoidance (high cost, not infinite)
 
     Args:
         shape:   DEM matris boyutu (n_rows, n_cols).
@@ -260,6 +358,8 @@ def astar_search(
         goal:    Hedef grid noktası (row, col).
         profile: Maliyet ağırlıkları ve çizim stili.
         layers:  Türetilmiş maliyet katmanları.
+        battery_soc: Battery state-of-charge (0-100%). If None, uses
+                     profile's base wg (no survival mode override).
 
     Returns:
         RouteResult — yol, maliyet ve profil bilgisi.
@@ -316,7 +416,9 @@ def astar_search(
             if neighbor in closed:
                 continue
 
-            step_cost = _transition_cost(current, neighbor, profile, layers)
+            step_cost = _transition_cost(
+                current, neighbor, profile, layers, battery_soc
+            )
             tentative_g = current_g + step_cost
 
             if tentative_g >= g_score.get(neighbor, float("inf")):

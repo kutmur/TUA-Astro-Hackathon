@@ -4,6 +4,11 @@ Bu dosya projenin tüm sabitlerini, A/B nokta oranlarını ve
 üç farklı rota profili için AYAP-2 4D maliyet denklemi ağırlıklarını
 (W_d, W_e, W_s, W_g) barındırır.
 
+Lunar Physics:
+    - θ_max: Maximum traversable slope angle before tipping risk
+    - SoC thresholds: Battery state-of-charge levels that trigger survival mode
+    - Shadow cost (G): Soft avoidance via high finite cost (NOT infinite walls)
+
 Kullanım:
     from config import PROJECT_CONFIG, ROUTE_PROFILES, START_UV, GOAL_UV
 """
@@ -24,6 +29,50 @@ from typing import Final
 
 START_UV: Final[tuple[float, float]] = (0.0, 0.99)   # Row = En Üst,  Col = En Sağ
 GOAL_UV: Final[tuple[float, float]]  = (0.5, 0.05)   # Row = Orta,    Col = En Sol
+
+# ─────────────────────────────────────────────────
+# AYAP-2 4D Maliyet Denklemi Sabitleri
+# ─────────────────────────────────────────────────
+
+# θ_max: Maksimum geçilebilir eğim açısı (radyan)
+# Lunar rover stability limit ~20-25° depending on CoG height
+# Beyond this angle: cost = THETA_MAX_COST (practical infinity)
+THETA_MAX_DEGREES: Final[float] = 25.0
+THETA_MAX_RAD: Final[float] = THETA_MAX_DEGREES * 3.14159265 / 180.0
+
+# Cost assigned when slope exceeds θ_max (high finite, NOT infinite)
+# This prevents numerical issues while making the path effectively impassable
+THETA_MAX_COST: Final[float] = 10_000.0
+
+# ─────────────────────────────────────────────────
+# SoC (State of Charge) Dynamic W_g Survival Instinct
+# ─────────────────────────────────────────────────
+# Battery percentage thresholds that modify shadow avoidance behavior
+# Lunar rovers depend on solar charging; shadow = death when battery low
+
+@dataclass(frozen=True)
+class SoCThresholds:
+    """Battery state-of-charge thresholds for dynamic shadow avoidance.
+
+    Above the safe threshold, the rover uses its base shadow cost. Below the
+    warning threshold, the rover increases shadow avoidance and may transition
+    to survival-oriented behavior in the downstream piecewise W_g logic.
+
+    Attributes:
+        safe_threshold: Above this %, use base W_g (focus on mission)
+        warning_threshold: Below this %, increase W_g and enable low-battery behavior
+        wg_safe: Shadow weight when battery is safe
+        wg_warning: Shadow weight when battery is low
+        wg_critical: Shadow weight used by survival-mode logic
+    """
+    safe_threshold: float = 50.0
+    warning_threshold: float = 20.0
+    wg_safe: float = 0.10
+    wg_warning: float = 0.40
+    wg_critical: float = 0.80
+
+
+SOC_THRESHOLDS: Final[SoCThresholds] = SoCThresholds()
 
 # ─────────────────────────────────────────────────
 # Kamera / Perception Tetikleyicisi
@@ -59,6 +108,15 @@ ROCK_FAR_WINDOW_RADIUS: Final[int] = 5
 class RouteProfile:
     """Tek bir rota senaryosunun ağırlık ve çizim stilini tanımlar.
 
+    AYAP-2 4D Cost Equation:
+        C_total = [(W_d × D) + (W_e × E) + (W_s × S) + (W_g × G)] × 1000
+
+    Where:
+        D = Euclidean distance (kinematic energy proxy)
+        E = Asymmetric slope cost (uphill penalty, mild downhill reward)
+        S = Surface friction / regolith roughness
+        G = Shadow / thermal risk (soft avoidance, NOT infinite walls)
+
     Attributes:
         name: Profil adı (lejant etiketi).
         wd: Mesafe (Distance) ağırlığı.
@@ -80,13 +138,19 @@ class RouteProfile:
     linewidth: float = 3.0
 
 
-# Üç standart AYAP-2 rota profili
+# Üç standart AYAP-2 rota profili — Specification Table Values
+# | Profile              | W_d  | W_e  | W_s  | W_g  | Expected Cost |
+# |----------------------|------|------|------|------|---------------|
+# | Balanced 4D (Optimal)| 1.40 | 4.00 | 1.60 | 0.22 | ~590,502      |
+# | Shortest Distance    | 9.50 | 0.25 | 0.05 | 0.01 | ~1,345,804    |
+# | Thermal Safe         | 0.90 | 1.20 | 0.50 | 6.50 | ~9,030,179    |
+
 ROUTE_PROFILES: Final[list[RouteProfile]] = [
     RouteProfile(
-        name="Optimal Path (Balanced 4D)",
-        wd=1.4,
-        we=4.0,
-        ws=1.6,
+        name="Balanced 4D (Optimal)",
+        wd=1.40,
+        we=4.00,
+        ws=1.60,
         wg=0.22,
         color="gold",
         linestyle="-",
@@ -94,7 +158,7 @@ ROUTE_PROFILES: Final[list[RouteProfile]] = [
     ),
     RouteProfile(
         name="Shortest Distance",
-        wd=9.5,
+        wd=9.50,
         we=0.25,
         ws=0.05,
         wg=0.01,
@@ -104,10 +168,10 @@ ROUTE_PROFILES: Final[list[RouteProfile]] = [
     ),
     RouteProfile(
         name="Thermal Safe",
-        wd=0.9,
-        we=1.2,
-        ws=0.5,
-        wg=6.5,
+        wd=0.90,
+        we=1.20,
+        ws=0.50,
+        wg=6.50,
         color="magenta",
         linestyle=":",
         linewidth=2.5,
@@ -146,7 +210,12 @@ class ProjectConfig:
     # Bayrak direği yükseklik oranı
     pole_height_ratio: float = 0.18
 
-    # Çıktı dosya isimleri
+    # Çıktı dosya isimleri — JURY REQUIRED NAMES
+    output_input: str = "input.png"       # 3D DEM with A/B markers
+    output_topview: str = "topview.png"   # 2D heatmap top view
+    output_final: str = "output.png"      # 3D DEM with all routes
+
+    # Legacy step-by-step output names (kept for backward compatibility)
     output_step1: str = "01_base_surface.png"
     output_step2: str = "02_surface_with_markers.png"
     output_step3: str = "03_final_routes_analyzed.png"
@@ -205,3 +274,31 @@ def resolve_default_tif() -> Path | None:
         if candidates:
             return candidates[0]
     return None
+
+
+def get_dynamic_wg(battery_soc: float, base_wg: float = 0.22) -> float:
+    """Computes dynamic shadow weight based on battery state-of-charge.
+
+    Lunar Physics Rationale:
+        When battery is low, the rover must prioritize finding sunlit areas
+        to recharge. Shadow avoidance becomes critical for survival.
+
+    Args:
+        battery_soc: Current battery percentage (0-100).
+        base_wg: Base shadow weight from route profile. Used when battery
+                 is at safe levels (> safe_threshold).
+
+    Returns:
+        Adjusted W_g value based on battery level.
+    """
+    thresholds = SOC_THRESHOLDS
+
+    if battery_soc > thresholds.safe_threshold:
+        # Battery is healthy, use profile's base weight (mission-focused)
+        return base_wg
+    elif battery_soc > thresholds.warning_threshold:
+        # Battery is getting low, increase shadow avoidance
+        return thresholds.wg_warning
+    else:
+        # CRITICAL: Survival mode - shadow avoidance dominates
+        return thresholds.wg_critical

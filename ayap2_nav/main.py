@@ -4,15 +4,20 @@ Bu dosya projenin ana giriş noktasıdır. İş akışı KESİNLİKLE şu sıray
 
     1. dem_loader ile .tif dosyasını yükle ve Cost katmanlarını çıkar.
     2. config'deki UV oranlarını kullanarak A ve B grid indekslerini bul.
-    3. ADIM 1: Çıplak 3D DEM → 01_base_surface.png
-    4. ADIM 2: DEM + A/B → 02_surface_with_markers.png
+    3. input.png: 3D DEM + A/B markers
+    4. topview.png: 2D heatmap top view
     5. planner ile 3 farklı profil için A* çalıştır.
-    6. ADIM 3: DEM + A/B + Rotalar + Lejant → 03_final_routes_analyzed.png
+    6. output.png: 3D DEM + A/B + Routes + Legend
+
+Jury Requirements (3 mandatory output files):
+    - input.png: 3D surface with A/B markers (no routes)
+    - topview.png: 2D heatmap with elevation colorbar
+    - output.png: 3D surface with all 3 routes overlaid + legend
 
 Kullanım:
     python main.py
-    python main.py --tif /yol/dosya.tif
-    python main.py --output-dir ./sonuclar
+    python main.py --tif /path/to/dem.tif
+    python main.py --output-dir ./results
 """
 
 from __future__ import annotations
@@ -86,58 +91,66 @@ except ImportError:
 def _parse_args() -> argparse.Namespace:
     """Komut satırı argümanlarını ayrıştırır."""
     parser = argparse.ArgumentParser(
-        description="TUA AYAP-2 | 4D Çok Amaçlı Dinamik Rota Optimizasyonu",
+        description="TUA AYAP-2 | 4D Multi-Objective Dynamic Route Optimization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--tif",
         type=str,
         default=None,
-        help="GeoTIFF DEM dosyasının yolu. Verilmezse otomatik bulunur.",
+        help="Path to GeoTIFF DEM file. Auto-detected if not specified.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default=".",
-        help="Çıktı PNG dosyalarının kaydedileceği dizin (varsayılan: mevcut dizin).",
+        help="Output directory for PNG files (default: current directory).",
     )
     parser.add_argument(
         "--window-size",
         type=int,
         default=None,
-        help="GeoTIFF merkez kırpma boyutu (piksel).",
+        help="GeoTIFF center crop size (pixels).",
     )
     parser.add_argument(
         "--downsample",
         type=int,
         default=None,
-        help="Downsample faktörü (min_grid_size koruması aktif).",
+        help="Downsample factor (min_grid_size protection active).",
     )
     return parser.parse_args()
 
 
 # ─────────────────────────────────────────────────
-# Ana İş Akışı
+# Camera/Perception Helpers (only loaded when CAMERA_CONNECTED=True)
 # ─────────────────────────────────────────────────
 
-def _generate_fallback_mock_frame(index: int, shape: tuple[int, int, int] = (720, 960, 3)) -> np.ndarray:
-    """Kamera yoksa pipeline testi için sentetik BGR frame üretir."""
+def _generate_fallback_mock_frame(
+    index: int,
+    shape: tuple[int, int, int] = (720, 960, 3),
+) -> np.ndarray:
+    """Kamera yoksa pipeline testi için sentetik BGR frame üretir.
+
+    This fallback ensures the perception pipeline can be tested even
+    without physical camera hardware attached.
+    """
+    # Lazy import: only load cv2 when actually needed
     try:
         import cv2
     except ModuleNotFoundError as err:
         raise ModuleNotFoundError(
-            "Mock kamera fallback için 'opencv-python' gereklidir."
+            "Mock camera fallback requires 'opencv-python'."
         ) from err
 
     h, w, _ = shape
     frame = np.zeros(shape, dtype=np.uint8)
-    frame[:, :] = (22, 22, 26)
+    frame[:, :] = (22, 22, 26)  # Dark lunar regolith base color
 
-    # Hafif zemin gradienti
+    # Subtle gradient to simulate lighting variation
     grad = np.linspace(0, 28, w, dtype=np.uint8)
     frame[:, :, 1] = np.clip(frame[:, :, 1] + grad[None, :], 0, 255)
 
-    # Hareketli mock kayalar
+    # Animated mock rocks for testing segmentation
     center_x = int((w * 0.25) + (index * 11) % int(w * 0.5))
     center_y = int((h * 0.35) + (index * 7) % int(h * 0.3))
     cv2.circle(frame, (center_x, center_y), 54, (95, 95, 95), -1)
@@ -152,19 +165,24 @@ def _iter_mock_camera_frames(
     max_frames: int,
     device_index: int,
 ) -> Iterator[np.ndarray]:
-    """OpenCV VideoCapture tabanlı mock kamera okuma döngüsü."""
+    """OpenCV VideoCapture tabanlı mock kamera okuma döngüsü.
+
+    Attempts to open physical camera first; falls back to synthetic
+    frames if camera is not available (for testing without hardware).
+    """
+    # Lazy import: only load cv2 when camera is connected
     try:
         import cv2
     except ModuleNotFoundError as err:
         raise ModuleNotFoundError(
-            "Kamera döngüsü için 'opencv-python' paketi gereklidir."
+            "Camera loop requires 'opencv-python' package."
         ) from err
 
     cap = cv2.VideoCapture(device_index)
     if not cap.isOpened():
         print(
-            "  [KAMERA] VideoCapture açılamadı. "
-            "Mock sentetik frame akışına geçiliyor."
+            "  [CAMERA] VideoCapture failed to open. "
+            "Falling back to synthetic mock frames."
         )
         for idx in range(max_frames):
             yield _generate_fallback_mock_frame(idx)
@@ -175,7 +193,7 @@ def _iter_mock_camera_frames(
         while read_count < max_frames:
             ok, frame = cap.read()
             if not ok or frame is None:
-                print("  [KAMERA] Frame okunamadı, döngü sonlandırıldı.")
+                print("  [CAMERA] Frame read failed, ending capture loop.")
                 break
 
             read_count += 1
@@ -184,8 +202,14 @@ def _iter_mock_camera_frames(
         cap.release()
 
 
-def _run_camera_perception_and_build_mask(grid_shape: tuple[int, int]) -> np.ndarray | None:
-    """Kameradan gelen frame'lerde segmentasyon çalıştırıp birleşik kaya maskesi döndürür."""
+def _run_camera_perception_and_build_mask(
+    grid_shape: tuple[int, int],
+) -> np.ndarray | None:
+    """Runs U-Net segmentation on camera frames and builds rock obstacle mask.
+
+    This function only loads the TensorFlow model when CAMERA_CONNECTED=True
+    and actual frames are available, preserving RAM on RAD750 hardware.
+    """
     perception: RockSegmentationPerception | None = None
     observed_rocks = np.zeros(grid_shape, dtype=np.uint8)
     processed_frames = 0
@@ -194,7 +218,7 @@ def _run_camera_perception_and_build_mask(grid_shape: tuple[int, int]) -> np.nda
         max_frames=CAMERA_MAX_FRAMES,
         device_index=CAMERA_DEVICE_INDEX,
     ):
-        # KATI KURAL: model, ancak kamera bağlı + frame geldiyse RAM'e alınır.
+        # CRITICAL: Model is only loaded when first frame arrives
         if perception is None:
             perception = RockSegmentationPerception(
                 weights_path=SEGMENTATION_MODEL_WEIGHTS,
@@ -218,17 +242,27 @@ def _run_camera_perception_and_build_mask(grid_shape: tuple[int, int]) -> np.nda
     ratio = (rock_pixels / max(total, 1)) * 100.0
     print(
         "  [PERCEPTION] "
-        f"İşlenen frame={processed_frames} | "
-        f"Kaya pikseli={rock_pixels}/{total} (%{ratio:.2f})"
+        f"Processed frames={processed_frames} | "
+        f"Rock pixels={rock_pixels}/{total} ({ratio:.2f}%)"
     )
 
     return observed_rocks
 
+
+# ─────────────────────────────────────────────────
+# Ana İş Akışı
+# ─────────────────────────────────────────────────
+
 def run() -> int:
-    """AYAP-2 kademeli rota simülasyonu iş akışını çalıştırır.
+    """AYAP-2 complete route simulation workflow.
+
+    Generates three jury-required output files:
+        - input.png: 3D DEM with A/B markers
+        - topview.png: 2D elevation heatmap
+        - output.png: 3D DEM with all routes
 
     Returns:
-        Çıkış kodu (0 = başarılı).
+        Exit code (0 = success).
     """
     args = _parse_args()
     cfg = PROJECT_CONFIG
@@ -240,8 +274,8 @@ def run() -> int:
         tif_path_opt = resolve_default_tif()
         if tif_path_opt is None:
             print(
-                "[HATA] GeoTIFF dosyası bulunamadı. "
-                "--tif argümanı ile yol belirtin.",
+                "[ERROR] GeoTIFF file not found. "
+                "Specify path with --tif argument.",
                 file=sys.stderr,
             )
             return 1
@@ -251,14 +285,14 @@ def run() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 65)
-    print("  TUA AYAP-2 | 4D Çok Amaçlı Dinamik Rota Optimizasyonu")
+    print("  TUA AYAP-2 | 4D Multi-Objective Dynamic Route Optimization")
     print("=" * 65)
     print(f"  GeoTIFF : {tif_path}")
-    print(f"  Çıktı   : {output_dir}")
+    print(f"  Output  : {output_dir}")
     print()
 
     # ══════════════════════════════════════════════
-    # ADIM 0: DEM Yükle & Maliyet Katmanlarını Üret
+    # STEP 0: Load DEM & Generate Cost Layers
     # ══════════════════════════════════════════════
     t0 = time.perf_counter()
 
@@ -269,46 +303,46 @@ def run() -> int:
     )
     layers = build_cost_layers(z_real)
 
-    print(f"  DEM Boyutu : {z_real.shape[0]} × {z_real.shape[1]}")
-    print(f"  Z Aralığı  : {float(np.min(z_real)):.2f} — {float(np.max(z_real)):.2f}")
+    print(f"  DEM Shape  : {z_real.shape[0]} × {z_real.shape[1]}")
+    print(f"  Z Range    : {float(np.min(z_real)):.2f} — {float(np.max(z_real)):.2f} m")
     print()
 
-    # ── UV → Grid İndeks Dönüşümü ──
+    # ── UV → Grid Index Conversion ──
     start = uv_to_grid(START_UV, z_real.shape)
     goal = uv_to_grid(GOAL_UV, z_real.shape)
 
-    print(f"  A (Başlangıç) : UV={START_UV} → Grid={start}")
-    print(f"  B (Hedef)      : UV={GOAL_UV}  → Grid={goal}")
+    print(f"  A (Start)  : UV={START_UV} → Grid={start}")
+    print(f"  B (Goal)   : UV={GOAL_UV}  → Grid={goal}")
     print()
 
     # ══════════════════════════════════════════════
-    # ADIM 1: Çıplak 3D DEM Yüzeyi
+    # STEP 1: Generate input.png (3D DEM + A/B markers)
     # ══════════════════════════════════════════════
     print("─" * 50)
-    print("  ADIM 1/3: Çıplak 3D DEM yüzeyi çiziliyor...")
+    print("  STEP 1/4: Generating input.png (3D DEM + markers)...")
     viz = DEMVisualizer()
-    viz.plot_step1_base_surface(
-        z_real=z_real,
-        save_path=output_dir / cfg.output_step1,
-    )
-
-    # ══════════════════════════════════════════════
-    # ADIM 2: DEM + A/B Bayrak Direkleri
-    # ══════════════════════════════════════════════
-    print("  ADIM 2/3: A ve B noktaları ekleniyor...")
-    viz.plot_step2_with_markers(
+    viz.plot_input_png(
         z_real=z_real,
         start=start,
         goal=goal,
-        save_path=output_dir / cfg.output_step2,
+        save_path=output_dir / cfg.output_input,
     )
 
     # ══════════════════════════════════════════════
-    # ADIM 2.5: Kamera + Segmentasyon + Katman Güncelleme
+    # STEP 2: Generate topview.png (2D heatmap)
+    # ══════════════════════════════════════════════
+    print("  STEP 2/4: Generating topview.png (2D heatmap)...")
+    viz.plot_topview_png(
+        z_real=z_real,
+        save_path=output_dir / cfg.output_topview,
+    )
+
+    # ══════════════════════════════════════════════
+    # STEP 2.5: Camera + Segmentation (if CAMERA_CONNECTED)
     # ══════════════════════════════════════════════
     planning_layers = layers
     if CAMERA_CONNECTED:
-        print("  ADIM 2.5: Kamera aktif, U-Net segmentasyon çalıştırılıyor...")
+        print("  STEP 2.5: Camera active, running U-Net segmentation...")
         rock_mask = _run_camera_perception_and_build_mask(z_real.shape)
 
         if rock_mask is not None and np.any(rock_mask):
@@ -323,22 +357,25 @@ def run() -> int:
                 far_radius=ROCK_FAR_WINDOW_RADIUS,
             )
             print(
-                "  [PLANLAYICI] Kaya maskesi maliyet katmanlarına işlendi "
+                "  [PLANNER] Rock mask applied to cost layers "
                 f"(target={ROCK_PENALTY_TARGET_LAYER}, "
                 f"direct={ROCK_DIRECT_PENALTY:.1f})."
             )
         else:
-            print("  [PLANLAYICI] Kamera akışında kaya tespiti yok, temel katmanlar kullanılacak.")
+            print(
+                "  [PLANNER] No rocks detected in camera stream, "
+                "using base cost layers."
+            )
     else:
         print(
-            "  ADIM 2.5: CAMERA_CONNECTED=False -> "
-            "model RAM'e yüklenmedi, perception atlandı."
+            "  STEP 2.5: CAMERA_CONNECTED=False → "
+            "Model not loaded, perception skipped."
         )
 
     # ══════════════════════════════════════════════
-    # ADIM 3: A* Rota Planlama + Final Görsel
+    # STEP 3: A* Route Planning (3 profiles)
     # ══════════════════════════════════════════════
-    print("  ADIM 3/3: A* rota hesaplama başlıyor...")
+    print("  STEP 3/4: Running A* route planning...")
     print()
 
     routes: list[RouteResult] = []
@@ -355,30 +392,35 @@ def run() -> int:
 
         routes.append(result)
         print(
-            f"    [{i}/3] {profile.name:35s} | "
-            f"Adım={len(result.path):5d} | "
-            f"Maliyet={result.cumulative_cost:12,.0f} | "
-            f"Süre={t_elapsed:.2f}s"
+            f"    [{i}/3] {profile.name:30s} | "
+            f"Steps={len(result.path):5d} | "
+            f"Cost={result.cumulative_cost:12,.0f} | "
+            f"Time={t_elapsed:.2f}s"
         )
 
     print()
-    print("  Final görsel oluşturuluyor...")
-    viz.plot_step3_final(
+
+    # ══════════════════════════════════════════════
+    # STEP 4: Generate output.png (3D DEM + routes)
+    # ══════════════════════════════════════════════
+    print("  STEP 4/4: Generating output.png (3D DEM + routes)...")
+    viz.plot_output_png(
         z_real=z_real,
         start=start,
         goal=goal,
         routes=routes,
-        save_path=output_dir / cfg.output_step3,
+        save_path=output_dir / cfg.output_final,
     )
 
     t_total = time.perf_counter() - t0
     print()
     print("─" * 50)
-    print(f"  ✓ Tamamlandı! Toplam süre: {t_total:.2f}s")
-    print(f"  Çıktılar:")
-    print(f"    • {output_dir / cfg.output_step1}")
-    print(f"    • {output_dir / cfg.output_step2}")
-    print(f"    • {output_dir / cfg.output_step3}")
+    print(f"  ✓ Complete! Total time: {t_total:.2f}s")
+    print()
+    print("  Jury-Required Output Files:")
+    print(f"    • {output_dir / cfg.output_input}")
+    print(f"    • {output_dir / cfg.output_topview}")
+    print(f"    • {output_dir / cfg.output_final}")
     print("=" * 65)
 
     return 0
@@ -388,14 +430,14 @@ if __name__ == "__main__":
     try:
         raise SystemExit(run())
     except FileNotFoundError as err:
-        print(f"[DOSYA HATASI] {err}", file=sys.stderr)
+        print(f"[FILE ERROR] {err}", file=sys.stderr)
         raise SystemExit(1)
     except ValueError as err:
-        print(f"[DEĞER HATASI] {err}", file=sys.stderr)
+        print(f"[VALUE ERROR] {err}", file=sys.stderr)
         raise SystemExit(2)
     except RuntimeError as err:
-        print(f"[PLANLAMA HATASI] {err}", file=sys.stderr)
+        print(f"[PLANNING ERROR] {err}", file=sys.stderr)
         raise SystemExit(3)
     except ModuleNotFoundError as err:
-        print(f"[BAĞIMLILIK HATASI] {err}", file=sys.stderr)
+        print(f"[DEPENDENCY ERROR] {err}", file=sys.stderr)
         raise SystemExit(4)

@@ -101,7 +101,7 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install --upgrade pip
-pip install numpy matplotlib rasterio
+pip install -r requirements.txt
 ```
 
 ### Run the Pipeline
@@ -235,6 +235,8 @@ To enable:
 **ThresholdAI** — TUA Astro Hackathon 2026
 
 - Halil Ibrahim Kutmur
+- Eren Kose
+- Ali Andac Erdas
 
 ---
 

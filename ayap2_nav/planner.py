@@ -98,41 +98,6 @@ def _euclidean(a: GridPoint, b: GridPoint) -> float:
     return sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
-def _compute_slope_angle(
-    current: GridPoint,
-    neighbor: GridPoint,
-    layers: CostLayers,
-    cell_size: float = 1.0,
-) -> float:
-    """Computes the actual slope angle in radians between two cells.
-
-    Lunar Physics:
-        Slope angle determines rover stability. Angles beyond θ_max
-        risk tipping the rover due to high center of gravity.
-
-    Args:
-        current: Source grid point.
-        neighbor: Target grid point.
-        layers: Cost layers containing normalized elevation.
-        cell_size: Physical size of one grid cell in meters.
-
-    Returns:
-        Slope angle in radians (positive = uphill, negative = downhill).
-    """
-    z_cur = float(layers.z_norm[current])
-    z_nbr = float(layers.z_norm[neighbor])
-
-    # Horizontal distance in grid units (√2 for diagonals)
-    horiz_dist = _euclidean(current, neighbor) * cell_size
-
-    # Vertical change (normalized, so scale appropriately)
-    # Note: z_norm is [0,1], representing full elevation range
-    dz = z_nbr - z_cur
-
-    # atan2 gives signed angle: positive = uphill, negative = downhill
-    return atan2(dz, horiz_dist)
-
-
 def _asymmetric_slope_cost(
     current: GridPoint,
     neighbor: GridPoint,
@@ -159,6 +124,10 @@ def _asymmetric_slope_cost(
     signed_grade = (z_nbr - z_cur) / max(distance, 1e-9)
 
     # Check θ_max threshold for tipping safety
+    # NOTE: This uses normalized elevation (z_norm in [0,1]) and grid-unit distance.
+    # The resulting "angle" is approximate and tuned for the 256x256 Haworth DEM.
+    # For flight-grade accuracy, convert z_norm back to meters using DEM metadata
+    # (z_span_m, cell_size_m) to compute real slope angles.
     slope_angle = abs(atan2(z_nbr - z_cur, distance))
     if slope_angle > THETA_MAX_RAD:
         logger.debug(

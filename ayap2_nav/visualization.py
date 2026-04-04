@@ -337,7 +337,7 @@ class DEMVisualizer:
         start: GridPoint,
         goal: GridPoint,
         save_path: Path,
-    ) -> Figure:
+    ) -> Path:
         """Generates input.png: 3D DEM with A/B markers (no routes).
 
         Jury Requirement:
@@ -354,7 +354,7 @@ class DEMVisualizer:
             save_path: Output path for input.png.
 
         Returns:
-            Matplotlib Figure.
+            Path to the saved PNG file.
         """
         fig, ax = self._create_base_surface(
             z_real,
@@ -363,13 +363,13 @@ class DEMVisualizer:
         self._add_markers(ax, z_real, start, goal)
         self._save_figure(fig, save_path)
         plt.close(fig)
-        return fig
+        return save_path
 
     def plot_topview_png(
         self,
         z_real: np.ndarray,
         save_path: Path,
-    ) -> Figure:
+    ) -> Path:
         """Generates topview.png: 2D heatmap of DEM elevation.
 
         Jury Requirement:
@@ -383,7 +383,7 @@ class DEMVisualizer:
             save_path: Output path for topview.png.
 
         Returns:
-            Matplotlib Figure.
+            Path to the saved PNG file.
         """
         fig = self._create_topview_heatmap(
             z_real,
@@ -391,7 +391,7 @@ class DEMVisualizer:
         )
         self._save_figure(fig, save_path)
         plt.close(fig)
-        return fig
+        return save_path
 
     def plot_output_png(
         self,
@@ -400,7 +400,7 @@ class DEMVisualizer:
         goal: GridPoint,
         routes: list[RouteResult],
         save_path: Path,
-    ) -> Figure:
+    ) -> Path:
         """Generates output.png: 3D DEM with all routes overlaid.
 
         Jury Requirement:
@@ -420,7 +420,7 @@ class DEMVisualizer:
             save_path: Output path for output.png.
 
         Returns:
-            Matplotlib Figure.
+            Path to the saved PNG file.
         """
         fig, ax = self._create_base_surface(
             z_real,
@@ -431,7 +431,7 @@ class DEMVisualizer:
         self._add_legend(ax)
         self._save_figure(fig, save_path)
         plt.close(fig)
-        return fig
+        return save_path
 
     # ─────────────────────────────────────────────
     # Legacy Step-by-Step Functions (Backward Compatibility)

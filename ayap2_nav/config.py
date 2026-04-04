@@ -54,20 +54,19 @@ THETA_MAX_COST: Final[float] = 10_000.0
 class SoCThresholds:
     """Battery state-of-charge thresholds for dynamic shadow avoidance.
 
-    When battery drops below critical threshold, the rover enters survival
-    mode and prioritizes reaching sunlit areas over mission goals.
+    Above the safe threshold, the rover uses its base shadow cost. Below the
+    warning threshold, the rover increases shadow avoidance and may transition
+    to survival-oriented behavior in the downstream piecewise W_g logic.
 
     Attributes:
         safe_threshold: Above this %, use base W_g (focus on mission)
-        warning_threshold: Below this %, increase W_g moderately
-        critical_threshold: Below this %, survival mode (W_g dominates)
+        warning_threshold: Below this %, increase W_g and enable low-battery behavior
         wg_safe: Shadow weight when battery is safe
         wg_warning: Shadow weight when battery is low
-        wg_critical: Shadow weight when battery is critical (survival mode)
+        wg_critical: Shadow weight used by survival-mode logic
     """
     safe_threshold: float = 50.0
     warning_threshold: float = 20.0
-    critical_threshold: float = 20.0  # Same as warning for piecewise
     wg_safe: float = 0.10
     wg_warning: float = 0.40
     wg_critical: float = 0.80
@@ -286,7 +285,8 @@ def get_dynamic_wg(battery_soc: float, base_wg: float = 0.22) -> float:
 
     Args:
         battery_soc: Current battery percentage (0-100).
-        base_wg: Base shadow weight from route profile.
+        base_wg: Base shadow weight from route profile. Used when battery
+                 is at safe levels (> safe_threshold).
 
     Returns:
         Adjusted W_g value based on battery level.
@@ -294,8 +294,8 @@ def get_dynamic_wg(battery_soc: float, base_wg: float = 0.22) -> float:
     thresholds = SOC_THRESHOLDS
 
     if battery_soc > thresholds.safe_threshold:
-        # Battery is healthy, use mission-focused weight
-        return thresholds.wg_safe
+        # Battery is healthy, use profile's base weight (mission-focused)
+        return base_wg
     elif battery_soc > thresholds.warning_threshold:
         # Battery is getting low, increase shadow avoidance
         return thresholds.wg_warning

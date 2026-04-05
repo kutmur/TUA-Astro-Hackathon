@@ -25,7 +25,7 @@ export default function Navbar() {
             {language === 'tr' ? 'TR | en' : 'tr | EN'}
           </button>
           
-          <a href="https://github.com" target="_blank" rel="noreferrer">
+          <a href="https://github.com/kutmur/TUA-Astro-Hackathon" target="_blank" rel="noreferrer">
              <Button variant="outline" className="border-(--border) hover:border-(--mastra-green-accent-2)/50 transition-all">
                <Terminal className="w-4 h-4 mr-2" />
                {t('viewGithub')}

@@ -1,19 +1,17 @@
 import { motion } from 'framer-motion';
-import { Heart, Rocket } from 'lucide-react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import ImpactFindings from './components/ImpactFindings';
 import FourDCostModel from './components/FourDCostModel';
 import SimulationDashboard from './components/SimulationDashboard';
 import MissionSpecialists from './components/MissionSpecialists';
-import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { LanguageProvider } from './context/LanguageContext';
 
 // ============================================================================
 // ENHANCED FOOTER
 // ============================================================================
 
 function Footer() {
-  const { t } = useLanguage();
   const currentYear = new Date().getFullYear();
 
   return (
@@ -33,30 +31,12 @@ function Footer() {
             className="flex items-center gap-3"
           >
             <div className="p-2 rounded-lg bg-gradient-to-br from-[#00ffff]/20 to-[#ffa500]/20 border border-[#393939]">
-              <Rocket className="w-5 h-5 text-[#00ffff]" />
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="ThresholdAI logo" className="w-5 h-5 object-contain" />
             </div>
             <div>
               <span className="font-bold text-lg tracking-wide text-white">ThresholdAI</span>
               <p className="text-xs text-[#64748b]">TUA Astro Hackathon 2026</p>
             </div>
-          </motion.div>
-
-          {/* Center - Made with love */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            viewport={{ once: true }}
-            className="flex items-center gap-2 text-sm text-[#cbd5e1]"
-          >
-            <span>{t('madeWith')}</span>
-            <motion.div
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
-              <Heart className="w-4 h-4 text-[#ff00ff] fill-[#ff00ff]" />
-            </motion.div>
-            <span>{t('forTheFuture')}</span>
           </motion.div>
 
           {/* Right - Copyright */}

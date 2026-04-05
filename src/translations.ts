@@ -88,8 +88,6 @@ export const translations = {
 
     // Footer
     footerText: "ThresholdAI © 2026 TUA Astro Hackathon",
-    madeWith: "ile yapıldı",
-    forTheFuture: "geleceğin Ay görevleri için",
   },
   en: {
     // Hero Section
@@ -180,8 +178,6 @@ export const translations = {
 
     // Footer
     footerText: "ThresholdAI © 2026 TUA Astro Hackathon",
-    madeWith: "Made with",
-    forTheFuture: "for the future of lunar missions",
   }
 };
 
